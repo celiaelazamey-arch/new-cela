@@ -1,0 +1,8 @@
+# OCR (اختياري) — كل ما هنا مجاني.
+#
+# 1) محرّك الصور: Tesseract برنامج نظام (لا حزمة Python):
+#      Debian/Ubuntu: sudo apt install tesseract-ocr tesseract-ocr-ara
+#      macOS:         brew install tesseract tesseract-lang
+#
+# 2) قراءة طبقة النص في PDF (اختياري، خفيف جداً):
+pypdf>=4,<7

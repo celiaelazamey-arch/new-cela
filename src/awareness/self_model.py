@@ -133,6 +133,19 @@ def default_self_model(tests_passing: int = 0) -> SelfModel:
                 evidence="src/quantum/simulator.py — Bell حالات مترابطة في الاختبارات",
             ),
             Capability(
+                name="MCP: تشغيل خوادم أدوات خارجية عبر stdio",
+                status="verified",
+                evidence="src/mcp/ — مصافحة وcall مُختبرة على خادم فرعي حقيقي (42 اختباراً)",
+            ),
+            Capability(
+                name="OCR من الصور والمستندات الممسوحة",
+                status="declared",
+                evidence=(
+                    "الخط كامل ومُختبر بمحرّك وهمي + PDF حقيقي عبر pypdf؛ "
+                    "قراءة الصور تحتاج Tesseract مثبتاً على الجهاز"
+                ),
+            ),
+            Capability(
                 name="جلب أبحاث من arXiv/S2/Crossref",
                 status="declared",
                 evidence="المحلّلات والكاش مُختبرة على استجابات محفوظة؛ الطلب الحقيقي غير مُختبر هنا",

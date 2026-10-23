@@ -8,6 +8,7 @@
 | `read_file` | read | `fs.read` | تقرأ ملفاً نصياً داخل الجذور المسموحة |
 | `search_files` | read | `fs.read` | تبحث عن نص في ملفات المشروع وتعيد السطر والسياق |
 | `run_command` | execute | `shell.exec` | تشغيل أمر من **قائمة بيضاء** عبر SandboxExecutor |
+| `ocr_extract` | read | `fs.read` | تستخرج نصاً من صورة/PDF داخل الجذور المسموحة |
 
 قاعدة أمان: `read_file` و`search_files` لا تخرجان عن `PolicyEngine.allowed_roots`
 مهما كان المسار المُمرَّر — والتحقق مزدوج (في السجل وفي الأداة).
@@ -153,6 +154,36 @@ async def run_command(params: BaseModel, ctx: ToolContext) -> str:
     return output[:4000] or "(بلا مخرجات)"
 
 
+# ================= ocr_extract =================
+class OcrExtractParams(BaseModel):
+    """وسائط استخراج نص من صورة أو PDF."""
+
+    path: str = Field(..., min_length=1, description="مسار الصورة أو ملف PDF")
+    lang: str = Field(default="ara+eng", description="لغة Tesseract (مثال ara+eng)")
+    max_chars: int = Field(default=8000, ge=100, le=20000)
+
+
+async def ocr_extract(params: BaseModel, ctx: ToolContext) -> str:
+    """يقرأ النص من صورة/PDF — قراءة فقط، وبلا أي كتابة على المصدر."""
+    assert isinstance(params, OcrExtractParams)
+    from src.ocr.engine import OcrError, extract_text
+
+    resolved = ctx.policy.resolve_path(params.path)
+    try:
+        result = await asyncio.to_thread(extract_text, resolved, None, params.lang)
+    except OcrError as exc:
+        raise RuntimeError(f"تعذّر استخراج النص ({type(exc).__name__}): {exc}") from exc
+
+    if result.empty:
+        warning = "؛ ".join(result.warnings) or "لا نص في الملف"
+        raise RuntimeError(f"لم يُستخرج نص ({result.backend}): {warning}")
+
+    header = f"[{result.backend}] {resolved.name}"
+    if result.pages:
+        header += f" — {result.pages} صفحة"
+    return f"{header}\n{result.text[: params.max_chars]}"
+
+
 # ================= التسجيل =================
 def build_default_registry(ctx: ToolContext | None = None) -> ToolRegistry:
     """
@@ -191,6 +222,18 @@ def build_default_registry(ctx: ToolContext | None = None) -> ToolRegistry:
     )
     registry.register(
         ToolSpec(
+            name="ocr_extract",
+            description="استخراج نص من صورة أو PDF ممسوح (OCR محلي مجاني) — قراءة فقط",
+            params=OcrExtractParams,
+            handler=ocr_extract,
+            risk=ToolRisk.READ,
+            scope="fs.read",
+            path_params=("path",),
+            examples=('{"path": "scan.png", "lang": "ara+eng"}',),
+        )
+    )
+    registry.register(
+        ToolSpec(
             name="run_command",
             description="تنفيذ أمر من قائمة بيضاء آمنة (بلا shell) — يتطلب موافقة",
             params=RunCommandParams,
@@ -204,11 +247,13 @@ def build_default_registry(ctx: ToolContext | None = None) -> ToolRegistry:
 
 
 __all__ = [
+    "OcrExtractParams",
     "PolicyDenied",
     "ReadFileParams",
     "RunCommandParams",
     "SearchFilesParams",
     "build_default_registry",
+    "ocr_extract",
     "read_file",
     "run_command",
     "search_files",

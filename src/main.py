@@ -162,6 +162,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="تعطيل منظور الوعي الوظيفي (انتباه محدود + تقدير ثقة)",
     )
+    parser.add_argument(
+        "--mcp-config",
+        default=None,
+        metavar="FILE",
+        help="ملف mcp.json لخوادم MCP (لا يُشغّل شيئاً بلا --mcp-server و --yes)",
+    )
+    parser.add_argument(
+        "--mcp-server",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="اسم خادم MCP لتفعيله (يتكرر)، يتطلب --yes لأنها عملية خارجية",
+    )
+    parser.add_argument(
+        "--ocr",
+        action="append",
+        default=None,
+        metavar="FILE",
+        help="صورة/PDF لاستخراج نصها وإضافتها إلى فهرس المعرفة (يتكرر)",
+    )
     return parser
 
 
@@ -232,7 +252,8 @@ def build_knowledge(args: argparse.Namespace):
     """
     path = getattr(args, "knowledge", None)
     query = getattr(args, "learn", None)
-    if not path and not query:
+    ocr_paths = getattr(args, "ocr", None)
+    if not path and not query and not ocr_paths:
         return None
 
     from src.knowledge.corpus import CorpusIndex
@@ -255,8 +276,78 @@ def build_knowledge(args: argparse.Namespace):
             for name, reason in report.errors.items():
                 logger.warning("تعذّر جلب %s (%s) — نُكمل بالفهرس الحالي.", name, reason)
 
+    ocr_paths = getattr(args, "ocr", None)
+    if ocr_paths:
+        from src.ocr.pipeline import ingest_paths
+
+        try:
+            report = ingest_paths(ocr_paths, corpus)
+        except Exception as exc:  # noqa: BLE001 — OCR رفاهية لا شرط
+            logger.warning("تعذّر OCR (%s) — نُكمل بلا نص المستند.", type(exc).__name__)
+        else:
+            logger.info("OCR: %s", report.summary())
+            for path, reason in report.failures.items():
+                logger.warning("تعذّر استخراج %s (%s).", path, reason)
+
     logger.info("فهرس المعرفة: %d قطعة من %d مصدراً", len(corpus), len(corpus.sources()))
     return corpus
+
+
+def start_mcp_servers(args: argparse.Namespace, registry) -> list:
+    """
+    يشغّل خوادم MCP المطلوبة ويسجّل أدواتها.
+
+    شروط صريحة: `--mcp-config` + `--mcp-server` + `--yes`. بلا `--yes` لا تُشغَّل
+    أي عملية خارجية، وتُطبع رسالة توضح ما كان سيحدث.
+    """
+    config_path = getattr(args, "mcp_config", None)
+    requested = getattr(args, "mcp_server", None)
+    if not config_path or not requested:
+        return []
+
+    from src.mcp.bridge import McpBridge
+    from src.mcp.client import StdioMcpClient
+    from src.mcp.config import McpConfigError, load_config
+
+    if not getattr(args, "yes", False):
+        logger.warning(
+            "خوادم MCP لم تُشغَّل: تحتاج موافقة صريحة (--yes) لتشغيل عملية خارجية."
+        )
+        return []
+
+    try:
+        config = load_config(config_path)
+    except McpConfigError as exc:
+        logger.error("إعداد MCP غير صالح: %s", exc)
+        return []
+
+    clients: list = []
+    for name in requested:
+        try:
+            server = config.get(name)
+        except McpConfigError as exc:
+            logger.error("%s — تم تجاوزه.", exc)
+            continue
+        client = StdioMcpClient(
+            server.argv(),
+            name=name,
+            env=server.env,
+            timeout=float(getattr(settings, "agent_timeout", 30) or 30),
+        )
+        try:
+            client.start()
+            client.initialize()
+            tools = client.list_tools()
+        except Exception as exc:  # noqa: BLE001 — خادم معطوب لا يُسقط المهمة
+            logger.error("تعذّر بدء خادم MCP «%s» (%s).", name, type(exc).__name__)
+            client.close()
+            continue
+
+        registered = McpBridge(client, name, tools).register_into(registry)
+        clients.append(client)
+        logger.info("MCP «%s»: %d أداة — %s", name, len(registered), ", ".join(registered))
+
+    return clients
 
 
 async def run_agent(args: argparse.Namespace) -> str | TaskResult:
@@ -276,18 +367,24 @@ async def run_agent(args: argparse.Namespace) -> str | TaskResult:
     registry = build_default_registry(
         ToolContext(policy=build_policy(args), quota=build_quota(args))
     )
-    engine = AgentEngine(
-        router,
-        registry=registry,
-        quota=registry.quota,
-        memory=build_memory(args),
-        telemetry=build_telemetry(args),
-        knowledge=build_knowledge(args),
-        awareness=not getattr(args, "no_awareness", False),
-    )
-    result = await engine.run(build_request(args))
-    logger.info("نتيجة التحقق: %s", result.summary())
-    return result
+    mcp_clients: list = []
+    try:
+        mcp_clients = start_mcp_servers(args, registry)
+        engine = AgentEngine(
+            router,
+            registry=registry,
+            quota=registry.quota,
+            memory=build_memory(args),
+            telemetry=build_telemetry(args),
+            knowledge=build_knowledge(args),
+            awareness=not getattr(args, "no_awareness", False),
+        )
+        result = await engine.run(build_request(args))
+        logger.info("نتيجة التحقق: %s", result.summary())
+        return result
+    finally:
+        for client in mcp_clients:
+            client.close()
 
 
 def main() -> int:

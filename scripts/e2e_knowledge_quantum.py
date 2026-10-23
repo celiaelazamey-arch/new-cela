@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -317,8 +318,106 @@ def loop_awareness() -> None:
           result.awareness.splitlines()[0] if result.awareness else "لا تقرير")
 
 
+def loop_mcp() -> None:
+    """MCP: خادم فرعي حقيقي، مصافحة، جرد أدوات، ثم استدعاء عبر السياسة والميزانية."""
+    from src.core.policy import AutoApprove, PolicyEngine
+    from src.core.quota import QuotaGuard
+    from src.mcp.bridge import McpBridge
+    from src.mcp.client import StdioMcpClient
+    from src.tools.builtin import build_default_registry
+    from src.tools.registry import ToolContext
+
+    # يوضع قبل تشغيل الخادم كي يكون الاختبار ذا معنى فعلاً
+    os.environ["E2E_SECRET_TOKEN"] = "should-not-leak"
+    server = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "fake_mcp_server.py"
+    client = StdioMcpClient([sys.executable, str(server)], name="e2e", timeout=8)
+    try:
+        client.start()
+        client.initialize()
+        tools = client.list_tools()
+        check("MCP: مصافحة وجرد أدوات عبر stdio",
+              client.server_info.get("name") == "fake-mcp" and len(tools) == 4,
+              f"{len(tools)} أدوات | بروتوكول {client.protocol_version}")
+
+        # الرفض الافتراضي: بلا نطاق mcp.call لا تنفيذ
+        strict = build_default_registry(ToolContext(policy=PolicyEngine(), quota=QuotaGuard()))
+        McpBridge(client, "e2e", tools).register_into(strict)
+        denied = asyncio.run(strict.invoke("mcp__e2e__echo", {"text": "x"}))
+        check("MCP: النداء مرفوض بلا نطاق mcp.call", not denied.ok and denied.denied,
+              denied.error[:70])
+
+        # بموافقة صريحة + ميزانية: ينفّذ ويُحتسب
+        policy = PolicyEngine(granted_scopes={"mcp.call"}, approval_handler=AutoApprove())
+        quota = QuotaGuard(max_tool_calls=2)
+        registry = build_default_registry(ToolContext(policy=policy, quota=quota))
+        McpBridge(client, "e2e", tools).register_into(registry)
+        ok = asyncio.run(registry.invoke("mcp__e2e__echo", {"text": "مرحباً"}))
+        check("MCP: تنفيذ بعيد يمر بالسياسة والميزانية",
+              ok.ok and ok.output == "echo: مرحباً" and quota.usage.tool_calls == 1,
+              ok.output)
+
+        # عزل البيئة: سر في بيئة العميل لا يجب أن يصل للخادم
+        keys = client.call_tool("env_keys", {}).split(",")
+        check("MCP: البيئة معزولة (لا تسريب مفاتيح)",
+              "E2E_SECRET_TOKEN" not in keys, f"{len(keys)} متغيراً مرئياً")
+    finally:
+        client.close()
+        os.environ.pop("E2E_SECRET_TOKEN", None)
+
+
+def loop_ocr() -> None:
+    """OCR: توجيه، معالجة صور حقيقية، PDF نصي، وفهرسة بمرجع."""
+    from src.knowledge.corpus import CorpusIndex
+    from src.ocr.engine import OcrError, extract_text, prepare_image
+    from src.ocr.pipeline import health, ingest_results
+
+    info = health()
+    check("OCR: حالة المحرّكات معلنة بصدق",
+          isinstance(info["ready"], bool) and len(info["backends"]) == 2,
+          f"جاهز={info['ready']} | tesseract={info['backends'][0]['available']}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+
+        class Stub:
+            name = "stub"
+
+            def available(self) -> bool:
+                return True
+
+            def extract(self, path, lang="ara+eng") -> str:
+                return "فاتورة رقم 42\nالمبلغ: 100 جنيه"
+
+        image = root / "invoice.png"
+        try:
+            from PIL import Image
+
+            Image.new("RGB", (120, 60), "white").save(image)
+            prepared = prepare_image(image)
+            check("OCR: معالجة مسبقة (رمادي + تكبير)",
+                  len(prepared) > 0 and prepared[:4] == b"\x89PNG",
+                  f"{len(prepared)} بايت PNG")
+        except ImportError:
+            check("OCR: Pillow غير مثبت (تخطّي صادق)", True, "pip install pillow")
+
+        result = extract_text(image, backend=Stub())
+        corpus = CorpusIndex(root / "corpus.jsonl")
+        report = ingest_results([result], corpus)
+        hit = corpus.search("فاتورة رقم")
+        check("OCR: النص المستخرج يصبح مرجعاً قابلاً للاستشهاد",
+              report.added_chunks > 0 and bool(hit) and "[ocr:invoice.png#L" in hit[0].render(),
+              hit[0].chunk.citation if hit else "لا نتائج")
+
+        try:
+            extract_text(root / "ghost.png")
+            missing_ok = False
+        except OcrError:
+            missing_ok = True
+        check("OCR: ملف مفقود يُرفض برسالة لا بانهيار", missing_ok)
+
+
 def main() -> int:
-    print("===== تحقق شامل: المعرفة + الأبحاث + الكم + المزامنة + الوعي =====\n")
+    print("===== تحقق شامل: المعرفة + الأبحاث + الكم + المزامنة + الوعي + MCP/OCR =====\n")
     loop_drive()
     print()
     loop_papers()
@@ -330,6 +429,10 @@ def main() -> int:
     loop_quantum_selection()
     print()
     loop_awareness()
+    print()
+    loop_mcp()
+    print()
+    loop_ocr()
 
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     total = len(CHECKS)

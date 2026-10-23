@@ -271,6 +271,54 @@ python -m src.sync.engine apply ... --conflict-policy newest   # اختياري:
 
 ---
 
+## 🔌 MCP و OCR — أدوات خارجية ونص من الصور، بنفس ضوابط النواة
+
+### MCP (Model Context Protocol)
+
+خوادم أدوات خارجية تُصبح أدوات نظامية كاملة الحقوق والواجبات:
+
+```
+mcp.json  ─► StdioMcpClient (مصافحة JSON-RPC)  ─► McpBridge  ─► ToolRegistry
+                                                                    │
+                                       تحقق وسائط ← سياسة/موافقة ← ميزانية ← تدقيق
+```
+
+| الضمانة | التفصيل |
+|---|---|
+| لا تثبيت تلقائي | `enabled: false` افتراضياً؛ ولا تشغيل بلا `--yes` |
+| أقل صلاحية | كل أداة بعيدة: `risk=execute` و`scope=mcp.call` (نطاق يُسأل عنه دائماً) |
+| عزل البيئة | الخادم يرى `PATH/HOME/LANG/TMPDIR` فقط — **لا مفاتيح API** |
+| مهل صريحة | 10 ثوانٍ افتراضياً؛ خادم صامت لا يُعلّق المهمة |
+| فشل ≠ انهيار | خطأ الخادم يعود `ToolResult` فاشلاً ويُسجَّل في التدقيق |
+
+```bash
+python -m src.mcp.cli servers --config mcp.json
+python -m src.mcp.cli tools --config mcp.json --server files --yes
+python -m src.main --task "..." --mcp-config mcp.json --mcp-server files --yes --grant mcp.call
+```
+
+### OCR — نص من الصور والمستندات الممسوحة
+
+| المكوّن | السلوك |
+|---|---|
+| `src/ocr/engine.py` | Tesseract عبر CLI (مجاني، دعم `ara`) + معالجة مسبقة بـ Pillow (رمادي/سطوع/تكبير ≤4×) |
+| `src/ocr/pipeline.py` | كل ملف يُدخل الفهرس بمرجع `ocr:file.png#L1-L12` |
+| أداة `ocr_extract` | قراءة فقط (`fs.read`)، تمر بحصر الجذور المسموحة |
+| PDF | طبقة نص عبر `pypdf` (اختياري)؛ الممسوح يُرفض برسالة واضحة لا بتخمين |
+
+```bash
+python -m src.ocr.cli health
+python -m src.ocr.cli extract scan.png --lang ara+eng --ingest .agent_knowledge/corpus.jsonl
+python -m src.main --task "لخّص الفاتورة" --ocr scan.png
+```
+
+> ⚠️ **حدّ مُعلن:** `tesseract` غير مثبت في بيئة التطوير، فمسار الصور مُختبر بمحرّك
+> وهمي + معالجة صور حقيقية؛ وPDF النصي مُتحقَّق فعلاً عبر `pypdf`.
+> التفاصيل في [`docs/mcp-and-ocr.md`](docs/mcp-and-ocr.md).
+
+
+---
+
 ## 🧠 منظور الوعي (Consciousness Perspective) — وعي وظيفي بمقاييس، لا ادّعاء
 
 أضفنا طبقة تجيب سؤالاً لا يجيب عنه الوكيل «الواثق» عادةً: **ماذا لم تنظر إليه، ولماذا؟**
@@ -449,6 +497,8 @@ Actions ← Autonomous Agent Pipeline ← Run workflow ← اكتب المهمة
 | معرفة موثّقة بأبحاث ومراجع | ✅ Corpus + arXiv/S2/Crossref | 0$ |
 | تحسين مستوحى من الكم | ✅ محاكي محلي + مقارنة صادقة | 0$ |
 | منظور وعي وظيفي (نموذج ذات/انتباه/ثقة) | ✅ مقيس ومُختبر | 0$ |
+| MCP: أدوات خارجية عبر stdio | ✅ خادم فرعي حقيقي في الاختبارات | 0$ |
+| OCR للصور و PDF | ⚠️ PDF ✅ / صور تحتاج Tesseract | 0$ |
 
 ---
 
@@ -466,6 +516,8 @@ Actions ← Autonomous Agent Pipeline ← Run workflow ← اكتب المهمة
 - [x] مزامنة ثنائية الاتجاه مع Drive — خطة أولاً + موافقة لكل كتابة + كشف تعارض
 - [x] اختيار أدوات السياق بقرار كمومي مُقارَن داخل المحرك
 - [x] منظور الوعي الوظيفي: نموذج ذات + انتباه محدود + ثقة مُعايَرة
+- [x] دعم MCP (stdio) بأدوات مُقيَّدة بالسياسة والميزانية
+- [x] OCR للصور و PDF مع فهرسة النص بمرجع
 - [ ] P1: بيئة برمجة معزولة تُعدّل الملفات وتشغّل الاختبارات (بدل القراءة فقط)
 - [ ] نشر اللوحة على استضافة مجانية (Streamlit Community Cloud) بنمط قراءة فقط
 

@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "files": {
+      "command": "python",
+      "args": ["-m", "my_mcp_server"],
+      "enabled": false,
+      "description": "خادم ملفات محلي عبر MCP stdio — عدّل الأمر ثم اضبط enabled: true"
+    }
+  }
+}
