@@ -36,6 +36,14 @@ new-cela/
 └── README.md
 ```
 
+> ⚠️ **قرار معماري مهم — توثيق تعارض التبعيات:**
+> تم تثبيت `browser-use>=0.9.7,<0.10.0` لأن الإصدارات 0.10+ تفرض تثبيتات حصرية
+> (`pydantic==2.13.5`, `groq==1.0.0`, `google-genai==1.65.0`) لا تتوافق مع pydantic الحديث.
+> كما تم تجنب حزم `langchain-google-genai` / `langchain-groq` لأنها تتعارض مع
+> نطاقات browser-use (`google-genai>=2.20` مقابل `google-genai<2.0`).
+> **الحل المعتمد:** استخدام نماذج المحادثة الأصلية المدمجة في browser-use
+> (`browser_use.llm.ChatGoogle` و `browser_use.llm.ChatGroq`) — بدون LangChain إطلاقاً.
+
 ---
 
 ## 🚀 التشغيل المحلي

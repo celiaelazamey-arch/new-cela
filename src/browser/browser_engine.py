@@ -4,8 +4,9 @@
 يبني على browser-use + Playwright للتحكم في متصفح Chromium
 وتنفيذ المهام الحية على الويب: تصفح، بحث، استخراج بيانات، تعبئة نماذج.
 
-عقد الاستخدام مُتحقَّق منه مقابل browser-use>=0.13.11:
+عقد الاستخدام مُتحقَّق منه مقابل browser-use 0.9.x:
     Agent(task=..., llm=...) ثم await agent.run(max_steps=...)
+حيث llm من نوع browser_use.llm.base.BaseChatModel (ChatGoogle أو ChatGroq).
 """
 from __future__ import annotations
 

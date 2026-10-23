@@ -1,12 +1,15 @@
 """
 موجّه النماذج المجانية (Free Multi-Provider LLM Router)
 ======================================================
-يدعم:
-  • Gemini API (الحد المجاني) كمزوّد أساسي — google-genai + langchain-google-genai
-  • Groq API (الحد المجاني) كمزوّد بديل سريع — groq + langchain-groq
+يعتمد على نماذج المحادثة الأصلية المدمجة في browser-use (بدون LangChain):
+  • browser_use.llm.google.ChatGoogle — Gemini API (الحد المجاني) — مزود أساسي
+  • browser_use.llm.groq.ChatGroq     — Groq API (الحد المجاني) — مزود بديل
 
 الهدف: استمرارية التشغيل دون توقف عند تجاوز حدود الاستهلاك (Rate Limits)
 أو انتهاء الحصة اليومية، عبر تبديل تلقائي بين المزودات.
+
+ملاحظة معمارية: تم تجنب حزم langchain-google-genai / langchain-groq لأنها
+تتعارض مع تثبيتات browser-use (تعارض ماسات موثّق في README).
 
 قاعدة أمان: لا تُسجَّل المفاتيح ولا تُطبَّع في أي رسالة خطأ.
 """
@@ -20,13 +23,16 @@ from src.config import settings
 
 logger = logging.getLogger("new-cela.router")
 
+GEMINI = "gemini"
+GROQ = "groq"
+
 
 class LLMRouter:
     """موجّه نماذج مجاني مع تبديل تلقائي بين المزودات عند الفشل."""
 
     def __init__(self) -> None:
         self.settings = settings
-        self._gemini_client: Any | None = None
+        self._models: dict[str, Any] = {}
 
     # ---------------- التحقق من توفر المفاتيح ----------------
     @property
@@ -37,9 +43,18 @@ class LLMRouter:
     def groq_available(self) -> bool:
         return bool(self.settings.groq_api_key)
 
+    def _provider_order(self) -> list[str]:
+        """المزودات المهيأة بترتيب الأولوية: Gemini ثم Groq."""
+        order: list[str] = []
+        if self.gemini_available:
+            order.append(GEMINI)
+        if self.groq_available:
+            order.append(GROQ)
+        return order
+
     def require_any_provider(self) -> None:
         """يرفض التشغيل إن لم يُضبط أي مفتاح — برسالة إرشادية بلا كشف أي بيانات."""
-        if not (self.gemini_available or self.groq_available):
+        if not self._provider_order():
             raise RuntimeError(
                 "⚠️ لم يتم العثور على أي مفتاح API مجاني.\n"
                 "الحل: اضبط GEMINI_API_KEY أو GROQ_API_KEY\n"
@@ -47,77 +62,56 @@ class LLMRouter:
                 "  • على GitHub: Settings ← Secrets and variables ← Actions"
             )
 
-    # ---------------- نموذج متوافق مع LangChain (تستخدمه browser-use) ----------------
-    def get_chat_model(self) -> Any:
-        """يعيد نموذج محادثة متوافقاً مع LangChain/Browser-Use."""
-        self.require_any_provider()
+    # ---------------- بناء النماذج ----------------
+    def _build_model(self, provider: str) -> Any:
+        if provider == GEMINI:
+            from browser_use.llm import ChatGoogle
 
-        if self.gemini_available:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-
-            logger.info("المزود الأساسي: Gemini (%s)", self.settings.agent_primary_model)
-            return ChatGoogleGenerativeAI(
+            logger.info("بناء نموذج Gemini (%s)", self.settings.agent_primary_model)
+            return ChatGoogle(
                 model=self.settings.agent_primary_model,
-                google_api_key=self.settings.gemini_api_key,
+                api_key=self.settings.gemini_api_key,
                 temperature=0.2,
             )
 
-        from langchain_groq import ChatGroq
+        from browser_use.llm import ChatGroq
 
-        logger.info("المزود البديل: Groq (%s)", self.settings.agent_fallback_model)
+        logger.info("بناء نموذج Groq (%s)", self.settings.agent_fallback_model)
         return ChatGroq(
             model=self.settings.agent_fallback_model,
-            groq_api_key=self.settings.groq_api_key,
+            api_key=self.settings.groq_api_key,
             temperature=0.2,
         )
 
-    # ---------------- عميل Gemini الأصلي (سريع لخطوات التفكير النصي) ----------------
-    def _get_gemini_client(self) -> Any:
-        if self._gemini_client is None:
-            from google import genai
+    def _get_model(self, provider: str) -> Any:
+        """يبني النموذج مرة واحدة ويخزّنه (يمنع استنزاف الاتصالات)."""
+        if provider not in self._models:
+            self._models[provider] = self._build_model(provider)
+        return self._models[provider]
 
-            self._gemini_client = genai.Client(api_key=self.settings.gemini_api_key)
-        return self._gemini_client
-
-    async def _gemini_generate(self, prompt: str) -> str:
-        client = self._get_gemini_client()
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=self.settings.agent_primary_model,
-            contents=prompt,
-        )
-        return response.text or ""
-
-    async def _groq_generate(self, prompt: str) -> str:
-        from groq import Groq
-
-        client = Groq(api_key=self.settings.groq_api_key)
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=self.settings.agent_fallback_model,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.choices[0].message.content or ""
+    def get_chat_model(self) -> Any:
+        """نموذج المحادثة الأساسي — تستخدمه وحدة المتصفح (browser-use)."""
+        self.require_any_provider()
+        return self._get_model(self._provider_order()[0])
 
     # ---------------- الواجهة الرئيسية: خطوة تفكير واحدة ----------------
     async def execute_reasoning_step(self, prompt: str) -> str:
         """ينفّذ خطوة تفكير واحدة مع تبديل تلقائي عند الفشل."""
-        self.require_any_provider()
+        providers = self._provider_order()
+        if not providers:
+            self.require_any_provider()  # يرفع الخطأ الإرشادي
+
+        from browser_use.llm import UserMessage
+
         failures: list[str] = []
-
-        if self.gemini_available:
+        for provider in providers:
             try:
-                return await self._gemini_generate(prompt)
+                model = self._get_model(provider)
+                response = await model.ainvoke([UserMessage(content=prompt)])
+                return response.completion
             except Exception as exc:  # noqa: BLE001 — مقصود: أي خطأ مزود يفعّل البديل
-                logger.warning("فشل Gemini (%s) — التبديل إلى البديل.", type(exc).__name__)
-                failures.append(f"gemini:{type(exc).__name__}")
-
-        if self.groq_available:
-            try:
-                return await self._groq_generate(prompt)
-            except Exception as exc:  # noqa: BLE001 — مقصود: تسجيل الفشل ثم رفع الخطأ
-                logger.warning("فشل Groq أيضاً (%s).", type(exc).__name__)
-                failures.append(f"groq:{type(exc).__name__}")
+                logger.warning("فشل المزود %s (%s) — تبديل.", provider, type(exc).__name__)
+                failures.append(f"{provider}:{type(exc).__name__}")
 
         raise RuntimeError("فشلت كل المزودات المجانية المتاحة: " + "; ".join(failures))
 
