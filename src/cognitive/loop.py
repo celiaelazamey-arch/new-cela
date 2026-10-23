@@ -114,7 +114,12 @@ class CognitiveResult(BaseModel):
 
 
 def decide_next_action(state: CognitiveState, plan: RepairPlan) -> dict | None:
-    """قرار حتمي: أول فعل غير مكتمل، ثم التحقق النهائي، ثم لا شيء."""
+    """قرار حتمي: أول فعل غير مكتمل، ثم التحقق النهائي، ثم تقييم الدليل المحفوظ.
+
+    الحالة التي اكتمل فيها `verify:final` وما زالت `in_progress` هي checkpoint
+    استُؤنف بعد القياس النهائي وقبل الحسم؛ قرارها تقييم معايير الهدف من الدليل
+    المحفوظ نفسه، لا إعادة اختبار ولا تعديل. هذا القرار لا يطلب أداة.
+    """
     if state.completion_status != "in_progress":
         return None
     for action in plan.steps:
@@ -122,7 +127,7 @@ def decide_next_action(state: CognitiveState, plan: RepairPlan) -> dict | None:
             return action.as_decision()
     if not state.has_completed("verify:final"):
         return {"kind": "verify", "action_id": "verify:final"}
-    return None
+    return {"kind": "evaluate", "action_id": "evaluate:goal"}
 
 
 def evaluate_goal(
@@ -221,7 +226,11 @@ class CognitiveLoop:
         return await self._execute(state, plan, resumed=False)
 
     async def resume(self, run_id: str) -> CognitiveResult:
-        """يستأنف الحالة المحفوظة ويتخطى كل step_id المكتمل فيها."""
+        """يستأنف الحالة المحفوظة ويتخطى كل step_id المكتمل فيها.
+
+        إن كان `verify:final` مكتملاً والحالة `in_progress`، تُحسم الحالة من
+        اللقطة المحفوظة إلى `done` أو `failed` دون إعادة اختبار أو تعديل.
+        """
         if self.checkpoints is None:
             raise ValueError("الاستئناف يحتاج CheckpointStore.")
         checkpoint = self.checkpoints.load(run_id)
@@ -377,21 +386,21 @@ class CognitiveLoop:
             decision = decide_next_action(state, plan)
             if decision is None:
                 break
+            if decision["kind"] == "evaluate":
+                # checkpoint استُؤنف بعد verify:final: الحسم من الدليل المحفوظ
+                # وحده، دون إعادة اختبار أو تعديل أو أي نداء أداة.
+                state = self._conclude(state, goal)
+                break
             if decision["kind"] == "verify":
                 state = await self._verify_final(state, goal, paths)
                 if state.completion_status != "in_progress":
                     break
-                diff = self._current_diff(state)
-                criteria = evaluate_goal(goal, state.environment, diff)
+                criteria = self._measured_criteria(state, goal)
                 if self._passed(criteria):
                     state = self._complete(state, criteria)
                     break
 
-                diagnosis = "؛ ".join(
-                    f"{result.criterion_id}: {result.detail}"
-                    for result in criteria
-                    if result.required and not result.passed
-                )
+                diagnosis = self._diagnosis(criteria)
                 if self.replanner is not None and state.replan_count < goal.budget.max_replans:
                     try:
                         new_plan = self.replanner(state, goal, diagnosis)
@@ -669,6 +678,45 @@ class CognitiveLoop:
                 return observations, result, calls
             observations.append(CommandObservation.from_tool(command, result))
         return observations, None, calls
+
+    def _measured_criteria(
+        self,
+        state: CognitiveState,
+        goal: Goal,
+    ) -> list[CriterionResult]:
+        """يقيس معايير الهدف من آخر لقطة محفوظة؛ قياس خالص بلا تنفيذ أمر."""
+        return evaluate_goal(goal, state.environment, self._current_diff(state))
+
+    @staticmethod
+    def _diagnosis(criteria: list[CriterionResult]) -> str:
+        return "؛ ".join(
+            f"{result.criterion_id}: {result.detail}"
+            for result in criteria
+            if result.required and not result.passed
+        )
+
+    def _conclude(self, state: CognitiveState, goal: Goal) -> CognitiveState:
+        """يحسم حالة اكتمل فيها التحقق النهائي: done أو failed وفق الدليل.
+
+        تُستخدم عند الاستئناف بعد `verify:final` حيث الحالة بقيت `in_progress`.
+        لا تُعيد الاختبار ولا تعدّل ملفاً ولا تسأل المخطط: القراءة من اللقطة
+        المحفوظة هي المصدر الوحيد للحكم، وغياب الملاحظة يعني عدم الاجتياز.
+        """
+        criteria = self._measured_criteria(state, goal)
+        if self._passed(criteria):
+            return self._complete(state, criteria)
+        return self._commit(
+            state,
+            "assess",
+            {
+                "completion_status": "failed",
+                "goal": goal.with_status("failed"),
+                "diagnosis": self._diagnosis(criteria),
+                "next_action": None,
+                "approval_required": False,
+            },
+            reason="حسم من دليل تحقق محفوظ؛ لا إعادة اختبار ولا تعديل",
+        )
 
     def _complete(
         self,
