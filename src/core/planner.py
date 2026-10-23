@@ -159,14 +159,19 @@ class Planner:
         self.last_hits: list[MemoryHit] = []
 
     # ================= الواجهة الرئيسية =================
-    async def solve(self, task: str) -> str:
-        """يشغّل الحلقة الكاملة: استرجاع ← تخطيط ← تنفيذ وتقييم ← تركيب ← حفظ."""
+    async def solve(self, task: str, context_block: str = "") -> str:
+        """
+        يشغّل الحلقة الكاملة: استرجاع ← تخطيط ← تنفيذ وتقييم ← تركيب ← حفظ.
+
+        `context_block`: سياق جمعه محرك الوكيل بأدوات (ملفات/بحث) قبل التخطيط —
+        يُحقن مع كتلة الذاكرة في prompts المخطّط والمنفّذ.
+        """
         self.history = []
         self.last_hits = []
         session = self.telemetry.start(task) if self.telemetry is not None else None
 
         try:
-            memory_block = self._recall(task)
+            memory_block = _join_blocks(context_block, self._recall(task))
             if session is not None:
                 session.record_recall(self.last_hits)
 
@@ -392,5 +397,11 @@ class Planner:
 
 
 def _indent_block(block: str) -> str:
-    """يجعل كتلة الذاكرة سطراً مستقلاً بمسافة فاصلة قبلها (أو فراغاً عند غيابها)."""
+    """يجعل الكتلة سطراً مستقلاً بمسافة فاصلة قبلها (أو فراغاً عند غيابها)."""
     return f"\n{block}\n" if block else ""
+
+
+def _join_blocks(*blocks: str) -> str:
+    """يدمج كتل السياق (أدوات + ذاكرة) بفاصل واضح، ويتجاهل الفارغ منها."""
+    parts = [block.strip() for block in blocks if block and block.strip()]
+    return "\n\n".join(parts)

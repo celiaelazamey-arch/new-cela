@@ -21,14 +21,20 @@ import argparse
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 from src.browser.browser_engine import BrowserEngine
 from src.config import settings
+from src.core.engine import AgentEngine
 from src.core.memory import MemoryRetriever, MemoryStore
-from src.core.planner import Planner
+from src.core.policy import AutoApprove, PolicyEngine
+from src.core.quota import QuotaGuard
+from src.core.task import TaskRequest, TaskResult, TaskStatus, ToolCall
 from src.core.telemetry import RunArchive
 from src.execution.sandbox import SandboxExecutor
 from src.providers.llm_router import LLMRouter
+from src.tools.builtin import build_default_registry
+from src.tools.registry import ToolContext
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,7 +89,87 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="عدم كتابة تقرير تشغيل (لا سجل ولا مراقبة)",
     )
+
+    # ---- أدوات وسياسة وميزانية (عقود P0) ----
+    parser.add_argument(
+        "--read",
+        action="append",
+        default=None,
+        metavar="PATH",
+        help="ملف يُقرأ كسياق قبل التخطيط (يمكن تكراره)",
+    )
+    parser.add_argument(
+        "--search",
+        default=None,
+        metavar="QUERY",
+        help="بحث نصي في مساحة العمل كسياق قبل التخطيط",
+    )
+    parser.add_argument(
+        "--allow-root",
+        action="append",
+        default=None,
+        metavar="DIR",
+        help="جذر مسموح للأدوات (افتراضياً مجلد العمل الحالي)",
+    )
+    parser.add_argument(
+        "--grant",
+        action="append",
+        default=None,
+        metavar="SCOPE",
+        help="نطاق إضافي ممنوح للأدوات (مثال: shell.exec)",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="موافقة صريحة على العمليات الحساسة (بدون سؤال تفاعلي)",
+    )
+    parser.add_argument(
+        "--max-model-calls", type=int, default=40, help="سقف نداءات النموذج لكل مهمة"
+    )
+    parser.add_argument(
+        "--max-tool-calls", type=int, default=20, help="سقف نداءات الأدوات لكل مهمة"
+    )
+    parser.add_argument(
+        "--allow-unverified-provider",
+        action="store_true",
+        help="السماح بمزود غير متحقَّق من مجانيته (ممنوع افتراضياً)",
+    )
+    parser.add_argument(
+        "--require-verified",
+        action="store_true",
+        help="إنهاء التشغيل برمز 2 إذا لم تجتز المهمة شروط التحقق",
+    )
     return parser
+
+
+def build_quota(args: argparse.Namespace) -> QuotaGuard:
+    """حارس التكلفة — يمنع المزود غير المتحقق وتجاوز السقف."""
+    return QuotaGuard(
+        max_model_calls=args.max_model_calls,
+        max_tool_calls=args.max_tool_calls,
+        allow_unverified=args.allow_unverified_provider,
+    )
+
+
+def build_policy(args: argparse.Namespace) -> PolicyEngine:
+    """سياسة الأدوات: نطاقات محدودة + موافقة صريحة فقط عند طلبها."""
+    from src.core.policy import DEFAULT_SCOPES
+
+    return PolicyEngine(
+        allowed_roots=args.allow_root or [Path.cwd()],
+        granted_scopes=set(DEFAULT_SCOPES) | set(args.grant or []),
+        approval_handler=AutoApprove() if args.yes else None,
+    )
+
+
+def build_request(args: argparse.Namespace) -> TaskRequest:
+    """يحوّل وسائط CLI إلى طلب مهمة بعقد صريح."""
+    calls = []
+    for path in args.read or []:
+        calls.append(ToolCall(name="read_file", args={"path": path}, purpose="قراءة سياق"))
+    if args.search:
+        calls.append(ToolCall(name="search_files", args={"query": args.search}, purpose="بحث"))
+    return TaskRequest(task=args.task, context_tools=calls)
 
 
 def build_memory(args: argparse.Namespace) -> MemoryRetriever | None:
@@ -115,7 +201,7 @@ def build_telemetry(args: argparse.Namespace) -> RunArchive | None:
     return archive
 
 
-async def run_agent(args: argparse.Namespace) -> str:
+async def run_agent(args: argparse.Namespace) -> str | TaskResult:
     """يوجّه المهمة إلى الوحدة المناسبة حسب النمط المختار."""
     # نمط code لا يحتاج نموذجاً لغوياً — يُنفّذ مباشرة في البيئة المعزولة
     if args.mode == "code":
@@ -129,14 +215,19 @@ async def run_agent(args: argparse.Namespace) -> str:
         result = await BrowserEngine(router).run_task(args.task, max_steps=args.max_steps)
         return str(result)
 
-    planner = Planner(
+    registry = build_default_registry(
+        ToolContext(policy=build_policy(args), quota=build_quota(args))
+    )
+    engine = AgentEngine(
         router,
-        max_steps=args.max_steps,
-        max_retries=args.max_retries,
+        registry=registry,
+        quota=registry.quota,
         memory=build_memory(args),
         telemetry=build_telemetry(args),
     )
-    return await planner.solve(args.task)
+    result = await engine.run(build_request(args))
+    logger.info("نتيجة التحقق: %s", result.summary())
+    return result
 
 
 def main() -> int:
@@ -149,6 +240,18 @@ def main() -> int:
         return 1
 
     print("\n==================== نتيجة الوكيل ====================")
+    if isinstance(output, TaskResult):
+        print(output.answer)
+        print(f"\n--- التحقق ---\n{output.summary()}")
+        for check in output.checks:
+            mark = "✅" if check.passed else ("❌" if check.required else "➖")
+            print(f"  {mark} {check.name}" + (f" — {check.detail}" if check.detail else ""))
+        if output.status is TaskStatus.BLOCKED:
+            return 2
+        if args.require_verified and not output.verified:
+            return 2
+        return 0
+
     print(output)
     return 0
 
