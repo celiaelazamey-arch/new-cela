@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from src.core.memory import MemoryRetriever, MemoryStore
@@ -31,6 +32,7 @@ from src.core.task import (
 from src.tools.registry import ToolContext, ToolRegistry, ToolResult
 
 logger = logging.getLogger("new-cela.engine")
+_CITATION = re.compile(r"\[([^\]]+#L\d+-L\d+)\]")
 
 UNVERIFIED_NOTE = "\n\n⚠️ لم تُجتَز كل شروط التحقق — تعامل مع هذه النتيجة كمسودة لا كإنجاز:"
 
@@ -54,6 +56,7 @@ class AgentEngine:
         tool_context: ToolContext | None = None,
         knowledge: Any = None,
         optimize_selection: bool = True,
+        awareness: bool = True,
     ) -> None:
         self.router = router
         self.registry = registry
@@ -66,6 +69,10 @@ class AgentEngine:
         self.knowledge = knowledge
         # اختيار أدوات السياق تحت الميزانية (كم/جشع) — قابل للإيقاف صراحةً
         self.optimize_selection = optimize_selection
+        # منظور الوعي الوظيفي: مساحة عمل محدودة + تقييم معرفي (ليس ادّعاء وعي)
+        self.awareness = awareness
+        # حالة الانتباه السابقة — يُستخدم نموذجها لضبط العتبة التالية
+        self._attention_threshold = 0.05
 
     # ================= الواجهة الرئيسية =================
     async def run(self, request: TaskRequest) -> TaskResult:
@@ -85,6 +92,7 @@ class AgentEngine:
 
         # ---------- 2) أدوات السياق ----------
         context_block = ""
+        knowledge_block = ""
         tool_results: list[ToolResult] = []
         if request.context_tools:
             chosen_calls, selection = self._select_context_tools(request.context_tools)
@@ -113,6 +121,22 @@ class AgentEngine:
                         kind="knowledge",
                         ref="corpus",
                         content=knowledge_block,
+                        ok=True,
+                    )
+                )
+
+        # ---------- 2ج) مساحة العمل المحدودة (انتباه) ----------
+        attention_state = None
+        if self.awareness:
+            attention_state, context_block = self._attend(
+                request.task, knowledge_block, context_block, tool_results
+            )
+            if attention_state is not None:
+                evidence.append(
+                    Evidence(
+                        kind="awareness",
+                        ref="attention",
+                        content=attention_state.render(),
                         ok=True,
                     )
                 )
@@ -175,6 +199,10 @@ class AgentEngine:
         checks = self._verify(request, planner, answer, evidence, tool_results)
         verified = all(check.passed for check in checks if check.required)
 
+        confidence, awareness_text = self._assess(
+            request, verified, checks, evidence, tool_results, attention_state
+        )
+
         if not verified:
             answer = answer.rstrip() + UNVERIFIED_NOTE + "\n" + "\n".join(
                 f"- {check.name}: {check.detail or 'لم يُستوفَ'}"
@@ -191,7 +219,100 @@ class AgentEngine:
             report_id=report_id,
             tool_calls=self.quota.usage.tool_calls,
             model_calls=self.quota.usage.model_calls,
+            confidence=confidence,
+            awareness=awareness_text,
         )
+
+    # ================= منظور الوعي =================
+    def _attend(
+        self,
+        task: str,
+        knowledge_block: str,
+        context_block: str,
+        tool_results: list[ToolResult],
+    ) -> tuple[Any, str]:
+        """
+        يمرّر السياق عبر مساحة عمل محدودة السعة ويُبثّ الفائز فقط.
+
+        الحدود حقيقية: ما لا يدخل لا يصل إلى النموذج — ويُسجَّل كمُهمَل بسبب.
+        إن لم يُهمَل شيء، يبقى السياق كما هو (لا إعادة تنسيق بلا داعٍ).
+        أي فشل يعيد السياق كما هو: الانتباه تحسين لا شرط للتنفيذ.
+        """
+        from src.awareness.workspace import Signal, compete
+
+        signals: list[Signal] = []
+        for line in knowledge_block.split("\n- "):
+            body = line.strip()
+            if not body:
+                continue
+            ref = "corpus"
+            match = _CITATION.search(body)
+            if match:
+                ref = match.group(1)
+            signals.append(Signal(kind="knowledge", ref=ref, content=body))
+        for result in tool_results:
+            if result.ok and result.output:
+                signals.append(
+                    Signal(kind="tool", ref=result.name, content=result.output[:4000])
+                )
+        if not signals and context_block.strip():
+            signals.append(Signal(kind="knowledge", ref="context", content=context_block))
+        if not signals:
+            return None, context_block
+
+        try:
+            state = compete(signals, query=task, threshold=self._attention_threshold)
+        except Exception as exc:  # noqa: BLE001 — الانتباه لا يُسقط المهمة
+            logger.warning("تعذّر تشغيل مساحة الانتباه (%s).", type(exc).__name__)
+            return None, context_block
+
+        # نموذج الانتباه يعود ليضبط العتبة التالية (حلقة التحكم في AST)
+        self._attention_threshold = state.attention.suggested_threshold(
+            self._attention_threshold
+        )
+
+        if not state.ignored:
+            return state, context_block or state.broadcast
+
+        header = (
+            "🧠 مساحة انتباه محدودة — هذه هي العناصر التي فازت بالسعة "
+            "لصلتها بالسؤال (الأخرى مُهمَلة ومسجَّلة في التقرير):"
+        )
+        return state, header + "\n" + state.broadcast
+
+    def _assess(
+        self,
+        request: Any,
+        verified: bool,
+        checks: list[AcceptanceCheck],
+        evidence: list[Evidence],
+        tool_results: list[ToolResult],
+        attention_state: Any,
+    ) -> tuple[float, str]:
+        """يحسب الثقة المُعايَرة والتقرير الذاتي الموجز — بلا ادّعاء يقين."""
+        if not self.awareness:
+            return 0.0, ""
+        try:
+            from src.awareness.metacognition import estimate
+
+            confidence = estimate(
+                verified=verified,
+                checks=checks,
+                evidence=evidence,
+                tool_failures=sum(1 for result in tool_results if not result.ok),
+                denied_tools=sum(1 for result in tool_results if result.denied),
+                truncated_context=bool(
+                    attention_state is not None and attention_state.ignored
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 — التقييم لا يُسقط النتيجة
+            logger.warning("تعذّر تقدير الثقة (%s).", type(exc).__name__)
+            return 0.0, ""
+
+        parts = [confidence.render()]
+        if attention_state is not None:
+            parts.append(attention_state.attention.describe())
+        return confidence.score, "\n".join(parts)
 
     # ================= الفحص المسبق =================
     def _knowledge_context(self, task: str) -> str:

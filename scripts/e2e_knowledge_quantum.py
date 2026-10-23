@@ -264,8 +264,61 @@ def loop_quantum_selection() -> None:
           selection[0].content.splitlines()[0] if selection else "لا دليل")
 
 
+def loop_awareness() -> None:
+    """منظور الوعي: هل السعة حدّ حقيقي؟ وهل الثقة تُعايَر بالأدلة؟"""
+    from src.awareness.metacognition import MAX_CONFIDENCE, estimate
+    from src.awareness.report import DISCLAIMER, IntrospectionReport
+    from src.awareness.self_model import default_self_model
+    from src.awareness.workspace import Signal, compete
+    from src.core.quota import QuotaGuard
+    from src.core.task import AcceptanceCheck, Evidence
+
+    model = default_self_model(tests_passing=243)
+    absent = [item.name for item in model.absent]
+    check("الوعي: نموذج الذات يعلن ما لا يستطيعه",
+          any("فينومينولوجي" in name for name in absent) and bool(model.unverified),
+          f"{len(model.verified)} متحقَّق، {len(model.unverified)} مُعلن، {len(model.absent)} غائب")
+
+    signals = [Signal(kind="tool", ref=f"tool{i}", content=f"نص أداة {i}") for i in range(8)]
+    state = compete(signals, query="نص أداة", capacity=3)
+    check("الوعي: السعة حدّ حقيقي والباقي مُهمَل بسبب",
+          len(state.focused) == 3 and len(state.ignored) == 5 and "السعة" in state.render(),
+          state.attention.describe())
+    check("الوعي: المُهمَل لا يُبَثّ إلى النموذج",
+          all(item.ref not in state.broadcast for item in state.ignored),
+          f"بُثّ {len(state.focused)} من {len(signals)}")
+
+    confident = estimate(
+        verified=True,
+        checks=[AcceptanceCheck(name=f"c{i}", passed=True) for i in range(5)],
+        evidence=[Evidence(kind="tool"), Evidence(kind="step"), Evidence(kind="knowledge")],
+    )
+    weak = estimate(verified=False, checks=[AcceptanceCheck(name="c", passed=False)], evidence=[])
+    check("الوعي: الثقة تُعايَر ولا تبلغ اليقين",
+          weak.score < confident.score <= MAX_CONFIDENCE,
+          f"قوية={confident.score:.2f}، ضعيفة={weak.score:.2f}، السقف={MAX_CONFIDENCE}")
+
+    report = IntrospectionReport(task="تحقق شامل", workspace=state, confidence=confident)
+    check("الوعي: كل تقرير يحمل الحد الصريح",
+          DISCLAIMER in report.render() and "\n" not in report.brief(),
+          report.brief())
+
+    class Corpus:
+        def context_for(self, query: str) -> str:
+            return "\n".join(f"- [doc{i}.md#L1-L4] معرفة عن {query}" for i in range(12))
+
+    router = FakeRouter()
+    engine = AgentEngine(router, quota=QuotaGuard(max_model_calls=10, max_tool_calls=5),
+                         knowledge=Corpus())
+    result = asyncio.run(engine.run(TaskRequest(task="مهمة بسيطة")))
+    prompt = router.prompts[0] if router.prompts else ""
+    check("المحرك: الانتباه يحدّ ما يصل فعلاً إلى الprompt",
+          "مساحة انتباه محدودة" in prompt and bool(result.awareness),
+          result.awareness.splitlines()[0] if result.awareness else "لا تقرير")
+
+
 def main() -> int:
-    print("===== تحقق شامل: المعرفة + الأبحاث + الكم + المزامنة =====\n")
+    print("===== تحقق شامل: المعرفة + الأبحاث + الكم + المزامنة + الوعي =====\n")
     loop_drive()
     print()
     loop_papers()
@@ -275,6 +328,8 @@ def main() -> int:
     loop_two_way()
     print()
     loop_quantum_selection()
+    print()
+    loop_awareness()
 
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     total = len(CHECKS)

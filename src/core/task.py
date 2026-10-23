@@ -86,6 +86,9 @@ class TaskResult(BaseModel):
     report_id: str = ""
     tool_calls: int = 0
     model_calls: int = 0
+    # منظور الوعي الوظيفي: ثقة مُعايَرة + تقرير ذاتي موجز
+    confidence: float = 0.0
+    awareness: str = ""
 
     @property
     def failed_checks(self) -> list[AcceptanceCheck]:

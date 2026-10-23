@@ -157,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="عدد الأوراق المجلوبة لكل استعلام (افتراضياً 3)",
     )
+    parser.add_argument(
+        "--no-awareness",
+        action="store_true",
+        help="تعطيل منظور الوعي الوظيفي (انتباه محدود + تقدير ثقة)",
+    )
     return parser
 
 
@@ -278,6 +283,7 @@ async def run_agent(args: argparse.Namespace) -> str | TaskResult:
         memory=build_memory(args),
         telemetry=build_telemetry(args),
         knowledge=build_knowledge(args),
+        awareness=not getattr(args, "no_awareness", False),
     )
     result = await engine.run(build_request(args))
     logger.info("نتيجة التحقق: %s", result.summary())
@@ -297,6 +303,8 @@ def main() -> int:
     if isinstance(output, TaskResult):
         print(output.answer)
         print(f"\n--- التحقق ---\n{output.summary()}")
+        if output.confidence:
+            print(f"\n--- منظور الوعي ---\n{output.awareness}")
         for check in output.checks:
             mark = "✅" if check.passed else ("❌" if check.required else "➖")
             print(f"  {mark} {check.name}" + (f" — {check.detail}" if check.detail else ""))
