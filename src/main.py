@@ -6,6 +6,10 @@
     python -m src.main --task "ابحث عن سعر الذهب اليوم" --mode browser
     python -m src.main --task "python --version" --mode code
 
+الذاكرة الاستراتيجية مفعّلة افتراضياً في النمط reason:
+    python -m src.main --task "..." --memory-path .agent_memory/memory.jsonl
+    python -m src.main --task "..." --no-memory        # تعطيل كامل للقراءة والكتابة
+
 في GitHub Actions: تُقرأ المهمة من الوسيط --task الذي يمرره سير العمل.
 """
 from __future__ import annotations
@@ -17,6 +21,7 @@ import sys
 
 from src.browser.browser_engine import BrowserEngine
 from src.config import settings
+from src.core.memory import MemoryRetriever, MemoryStore
 from src.core.planner import Planner
 from src.execution.sandbox import SandboxExecutor
 from src.providers.llm_router import LLMRouter
@@ -48,7 +53,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="حد إعادة محاولة كل خطوة عند رفضها من المقيّم (Critic)",
     )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help="تعطيل الذاكرة الاستراتيجية لهذه المهمة (لا قراءة ولا كتابة)",
+    )
+    parser.add_argument(
+        "--memory-path",
+        default=None,
+        help="مسار ملف الذاكرة (JSONL) — الافتراضي من الإعدادات",
+    )
+    parser.add_argument(
+        "--memory-top-k",
+        type=int,
+        default=None,
+        help="عدد الذكريات المسترجعة لكل استعلام (الافتراضي 4)",
+    )
     return parser
+
+
+def build_memory(args: argparse.Namespace) -> MemoryRetriever | None:
+    """ينشئ طبقة الذاكرة الاستراتيجية — أو None عند التعطيل الصريح."""
+    if args.no_memory:
+        logger.info("الذاكرة الاستراتيجية معطّلة لهذه المهمة (--no-memory).")
+        return None
+
+    store = MemoryStore.from_settings(settings, path=args.memory_path)
+    logger.info("الذاكرة الاستراتيجية: %d ذكرى محمّلة من %s", len(store), store.path)
+    return MemoryRetriever(
+        store,
+        top_k=args.memory_top_k or settings.agent_memory_top_k,
+        min_score=settings.agent_memory_min_score,
+    )
 
 
 async def run_agent(args: argparse.Namespace) -> str:
@@ -65,7 +101,12 @@ async def run_agent(args: argparse.Namespace) -> str:
         result = await BrowserEngine(router).run_task(args.task, max_steps=args.max_steps)
         return str(result)
 
-    planner = Planner(router, max_steps=args.max_steps, max_retries=args.max_retries)
+    planner = Planner(
+        router,
+        max_steps=args.max_steps,
+        max_retries=args.max_retries,
+        memory=build_memory(args),
+    )
     return await planner.solve(args.task)
 
 

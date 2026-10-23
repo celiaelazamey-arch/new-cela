@@ -10,6 +10,10 @@ __pycache__/
 .venv/
 venv/
 
+# ---- الذاكرة الاستراتيجية (بيانات محلية، لا تُرفع) ----
+.agent_memory/
+*.jsonl.tmp
+
 # ---- مخرجات التشغيل ----
 *.log
 agent_task.txt
