@@ -76,3 +76,77 @@ class MemoryEntry(BaseModel):
     score: int = Field(default=0, ge=0, le=10, description="تقييم المقيّم (0 = غير معروف)")
     tags: list[str] = Field(default_factory=list)
     created_at: str = ""
+
+
+class RunStatus(str, Enum):
+    """حالة تشغيل كامل — تظهر مباشرة في لوحة المتابعة."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class StepView(BaseModel):
+    """لقطة قابلة للتسلسل من خطوة — للعرض والتحليل خارج عملية الوكيل."""
+
+    index: int
+    description: str
+    status: StepStatus = StepStatus.PENDING
+    attempts: int = 0
+    score: int = Field(default=0, ge=0, le=10)
+    suggestion: str = ""
+    result_preview: str = ""
+    critiques: list[str] = Field(default_factory=list)
+
+
+class MemoryHitView(BaseModel):
+    """لقطة من ذكرى مسترجعة — تُظهر ما رآه الوكيل فعلاً قبل التخطيط."""
+
+    kind: MemoryKind
+    content: str
+    score: float = 0.0
+    similarity: float = 0.0
+    matched: list[str] = Field(default_factory=list)
+
+
+class RunReport(BaseModel):
+    """
+    تقرير تشغيل واحد — العقد بين المحرك والواجهة.
+
+    يُكتب على القرص بعد كل خطوة (كتابة ذرّية) لتستطيع اللوحة متابعة
+    التشغيل حياً، ويبقى بعد انتهاء العملية كسجل قابل للمراجعة.
+    """
+
+    id: str
+    task: str
+    status: RunStatus = RunStatus.RUNNING
+    started_at: str = ""
+    finished_at: str = ""
+    duration_seconds: float = 0.0
+    planned_steps: int = 0
+    answer: str = ""
+    error: str = ""
+    steps: list[StepView] = Field(default_factory=list)
+    memory_hits: list[MemoryHitView] = Field(default_factory=list)
+    memories_written: int = 0
+
+    @property
+    def steps_done(self) -> int:
+        return sum(1 for step in self.steps if step.status is StepStatus.DONE)
+
+    @property
+    def steps_failed(self) -> int:
+        return sum(1 for step in self.steps if step.status is StepStatus.FAILED)
+
+    @property
+    def average_score(self) -> float:
+        scored = [step.score for step in self.steps if step.score]
+        return round(sum(scored) / len(scored), 1) if scored else 0.0
+
+    @property
+    def progress(self) -> float:
+        """نسبة التقدّم 0..1 — تعتمد على عدد الخطوات المخطط لها."""
+        planned = max(self.planned_steps, len(self.steps))
+        if planned == 0:
+            return 1.0 if self.status is not RunStatus.RUNNING else 0.0
+        return min(1.0, len(self.steps) / planned)

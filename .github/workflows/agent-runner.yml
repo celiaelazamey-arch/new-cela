@@ -113,6 +113,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-result
-          path: agent_result.txt
+          # المخرجات النصية + تقرير التشغيل الذي تقرأه لوحة المتابعة
+          path: |
+            agent_result.txt
+            .agent_runs/
           if-no-files-found: ignore
           retention-days: 7

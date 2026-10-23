@@ -17,6 +17,10 @@
   • قبل التخطيط: يُسترجَع ما يشبه المهمة من الجلسات السابقة ويُحقن في الـ prompts.
   • بعد الانتهاء: تُحفَظ الخطوات الناجحة/الفاشلة وخلاصة المهمة للمرات القادمة.
   • عند `memory=None` (الافتراضي) لا يحدث أي إدخال/إخراج على القرص إطلاقاً.
+
+المراقبة (اختيارية عبر `telemetry=RunArchive`):
+  • تقرير تشغيل يُحدَّث بعد كل خطوة (كتابة ذرّية) ⇒ لوحة متابعة حية.
+  • عند `telemetry=None` لا يُكتب أي ملف — نفس قاعدة الذاكرة.
 """
 from __future__ import annotations
 
@@ -42,6 +46,7 @@ from src.core.schemas import (
     StepRecord,
     StepStatus,
 )
+from src.core.telemetry import RunArchive
 from src.providers.llm_router import LLMRouter
 
 logger = logging.getLogger("new-cela.planner")
@@ -129,11 +134,13 @@ class Planner:
         max_retries: int = 2,
         memory: MemoryStore | MemoryRetriever | None = None,
         remember: bool = True,
+        telemetry: RunArchive | None = None,
     ) -> None:
         self.router = router or LLMRouter()
         self.max_steps = max_steps or self.router.settings.agent_max_steps
         self.max_retries = max(1, max_retries)
         self.remember = remember
+        self.telemetry = telemetry
 
         # الذاكرة اختيارية تماماً: بدون تمريرها لا يحدث أي إدخال/إخراج على القرص
         router_settings = getattr(self.router, "settings", None)
@@ -156,19 +163,35 @@ class Planner:
         """يشغّل الحلقة الكاملة: استرجاع ← تخطيط ← تنفيذ وتقييم ← تركيب ← حفظ."""
         self.history = []
         self.last_hits = []
+        session = self.telemetry.start(task) if self.telemetry is not None else None
 
-        memory_block = self._recall(task)
-        steps = await self._create_plan(task, memory_block)
-        logger.info("الخطة المعتمدة: %d خطوة/خطوات", len(steps))
+        try:
+            memory_block = self._recall(task)
+            if session is not None:
+                session.record_recall(self.last_hits)
 
-        total = min(len(steps), self.max_steps)
-        for index, description in enumerate(steps[: self.max_steps], start=1):
-            record = await self._run_step(task, index, total, description, memory_block)
-            self.history.append(record)
+            steps = await self._create_plan(task, memory_block)
+            logger.info("الخطة المعتمدة: %d خطوة/خطوات", len(steps))
+            if session is not None:
+                session.set_planned_steps(min(len(steps), self.max_steps))
 
-        answer = await self._synthesize(task, self.history)
-        self._remember(task, answer)
-        return answer
+            total = min(len(steps), self.max_steps)
+            for index, description in enumerate(steps[: self.max_steps], start=1):
+                record = await self._run_step(task, index, total, description, memory_block)
+                self.history.append(record)
+                if session is not None:
+                    session.record_step(record)
+
+            answer = await self._synthesize(task, self.history)
+            written = self._remember(task, answer)
+            if session is not None:
+                session.set_memories_written(written)
+                session.finish(answer)
+            return answer
+        except Exception as exc:
+            if session is not None:
+                session.fail(exc)
+            raise
 
     # ================= المرحلة 1: التخطيط (Planner) =================
     async def _create_plan(self, task: str, memory_block: str = "") -> list[str]:
@@ -312,14 +335,16 @@ class Planner:
         logger.info("استُرجعت %d ذكرى ذات صلة من الجلسات السابقة.", len(hits))
         return build_context_block(hits, max_chars=max_chars)
 
-    def _remember(self, task: str, answer: str) -> None:
-        """يحفظ دروس المهمة الحالية — لا يفشل التنفيذ تحت أي ظرف."""
+    def _remember(self, task: str, answer: str) -> int:
+        """يحفظ دروس المهمة الحالية ويعيد عدد الذكريات المكتوبة — لا يفشل التنفيذ أبداً."""
         if not self.remember or self.memory is None or not self.history:
-            return
+            return 0
 
+        written = 0
         try:
             for record in self.history:
-                self.memory.add_step_record(record, task=task)
+                if self.memory.add_step_record(record, task=task) is not None:
+                    written += 1
 
             scored = [record.score for record in self.history if record.score]
             average = round(sum(scored) / len(scored)) if scored else 0
@@ -327,7 +352,7 @@ class Planner:
             failed = [record for record in self.history if not record.succeeded]
 
             if failed:
-                self.memory.add(
+                saved = self.memory.add(
                     content=(
                         f"مهمة «{task}»: نجحت {len(self.history) - len(failed)}/"
                         f"{len(self.history)} خطوة. الخلاصة: {headline}"
@@ -338,18 +363,23 @@ class Planner:
                     tags=["partial"],
                 )
             else:
-                self.memory.add(
+                saved = self.memory.add(
                     content=f"مهمة «{task}»: {headline}",
                     kind=MemoryKind.SUCCESS,
                     task=task,
                     score=average,
                 )
 
+            if saved is not None:
+                written += 1
+
             maybe_compact = getattr(self.memory, "maybe_compact", None)
             if callable(maybe_compact):
                 maybe_compact()
         except Exception as exc:  # noqa: BLE001 — مقصود: فشل الذاكرة لا يُسقط المهمة
             logger.warning("تعذّر حفظ الذاكرة (%s) — النتيجة سليمة.", type(exc).__name__)
+
+        return written
 
     # ================= أداة مساعدة: الإخراج المنظّم =================
     async def _try_structured(self, prompt: str, model: type[T]) -> T | None:

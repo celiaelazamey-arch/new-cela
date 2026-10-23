@@ -10,6 +10,9 @@
     python -m src.main --task "..." --memory-path .agent_memory/memory.jsonl
     python -m src.main --task "..." --no-memory        # تعطيل كامل للقراءة والكتابة
 
+كل تشغيل يُسجَّل في .agent_runs/ (يقرأه لوحة المتابعة):
+    python -m src.dashboard                             # فتح اللوحة على 8501
+
 في GitHub Actions: تُقرأ المهمة من الوسيط --task الذي يمرره سير العمل.
 """
 from __future__ import annotations
@@ -23,6 +26,7 @@ from src.browser.browser_engine import BrowserEngine
 from src.config import settings
 from src.core.memory import MemoryRetriever, MemoryStore
 from src.core.planner import Planner
+from src.core.telemetry import RunArchive
 from src.execution.sandbox import SandboxExecutor
 from src.providers.llm_router import LLMRouter
 
@@ -69,6 +73,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="عدد الذكريات المسترجعة لكل استعلام (الافتراضي 4)",
     )
+    parser.add_argument(
+        "--runs-dir",
+        default=None,
+        help="مجلد سجل التشغيلات الذي تقرأه لوحة المتابعة",
+    )
+    parser.add_argument(
+        "--no-telemetry",
+        action="store_true",
+        help="عدم كتابة تقرير تشغيل (لا سجل ولا مراقبة)",
+    )
     return parser
 
 
@@ -85,6 +99,20 @@ def build_memory(args: argparse.Namespace) -> MemoryRetriever | None:
         top_k=args.memory_top_k or settings.agent_memory_top_k,
         min_score=settings.agent_memory_min_score,
     )
+
+
+def build_telemetry(args: argparse.Namespace) -> RunArchive | None:
+    """ينشئ أرشيف التشغيلات — أو None عند التعطيل الصريح."""
+    if args.no_telemetry:
+        logger.info("سجل التشغيلات معطّل لهذه المهمة (--no-telemetry).")
+        return None
+
+    archive = RunArchive(
+        path=args.runs_dir or settings.agent_runs_path,
+        keep=settings.agent_runs_keep,
+    )
+    logger.info("سجل التشغيلات: %s", archive.path)
+    return archive
 
 
 async def run_agent(args: argparse.Namespace) -> str:
@@ -106,6 +134,7 @@ async def run_agent(args: argparse.Namespace) -> str:
         max_steps=args.max_steps,
         max_retries=args.max_retries,
         memory=build_memory(args),
+        telemetry=build_telemetry(args),
     )
     return await planner.solve(args.task)
 

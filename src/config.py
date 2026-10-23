@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     agent_memory_max_entries: int = 500
     agent_memory_min_score: float = 0.05
 
+    # ---- سجل التشغيلات (مصدر بيانات لوحة المتابعة) ----
+    agent_runs_path: str = ".agent_runs"
+    agent_runs_keep: int = 50
+
     @property
     def has_any_provider(self) -> bool:
         """هل يوجد مزود واحد على الأقل مهيأ؟"""
