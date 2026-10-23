@@ -31,8 +31,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # الحزم الاختيارية تُثبَّت هنا كي لا تُتخطّى اختباراتها في CI:
+      # محاكي الكم (qiskit) وقراءة PDF النصية (pypdf). Tesseract يبقى اختيارياً.
+      - name: Install Optional Extras (quantum + pdf)
+        run: pip install -r requirements-quantum.txt -r requirements-ocr.txt
+
       - name: Syntax Check (compileall)
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests scripts
 
       - name: Lint (ruff)
         run: ruff check .
