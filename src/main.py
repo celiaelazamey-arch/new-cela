@@ -41,7 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="reason",
         help="نمط التنفيذ: reason (تفكير) | browser (تصفح) | code (تنفيذ أوامر)",
     )
-    parser.add_argument("--max-steps", type=int, default=None, help="الحد الأقصى لخطوات الوكيل")
+    parser.add_argument("--max-steps", type=int, default=None, help="الحد الأقصى لخطوات الخطة")
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=2,
+        help="حد إعادة محاولة كل خطوة عند رفضها من المقيّم (Critic)",
+    )
     return parser
 
 
@@ -59,7 +65,7 @@ async def run_agent(args: argparse.Namespace) -> str:
         result = await BrowserEngine(router).run_task(args.task, max_steps=args.max_steps)
         return str(result)
 
-    planner = Planner(router, max_steps=args.max_steps)
+    planner = Planner(router, max_steps=args.max_steps, max_retries=args.max_retries)
     return await planner.solve(args.task)
 
 

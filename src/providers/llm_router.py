@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from src.config import settings
 
 logger = logging.getLogger("new-cela.router")
+
+GEMINI = "gemini"
+GROQ = "groq"
+
+T = TypeVar("T")
 
 GEMINI = "gemini"
 GROQ = "groq"
@@ -114,6 +119,33 @@ class LLMRouter:
                 failures.append(f"{provider}:{type(exc).__name__}")
 
         raise RuntimeError("فشلت كل المزودات المجانية المتاحة: " + "; ".join(failures))
+
+    # ---------------- إخراج منظّم (Function Calling) ----------------
+    async def execute_structured_step(self, prompt: str, output_format: type[T]) -> T | None:
+        """
+        ينفّذ خطوة بإخراج منظّم عبر المزود الأساسي ثم البديل.
+        يعيد None إذا فشل كل المزود — ليلجأ المتصل للاستخراج النصي.
+        """
+        providers = self._provider_order()
+        if not providers:
+            self.require_any_provider()  # يرفع الخطأ الإرشادي
+
+        from browser_use.llm import UserMessage
+
+        failures: list[str] = []
+        for provider in providers:
+            try:
+                model = self._get_model(provider)
+                response = await model.ainvoke(
+                    [UserMessage(content=prompt)], output_format=output_format
+                )
+                return response.completion
+            except Exception as exc:  # noqa: BLE001 — مقصود: تسجيل الفشل ثم تجربة البديل
+                logger.warning("فشل الإخراج المنظّم عبر %s (%s).", provider, type(exc).__name__)
+                failures.append(f"{provider}:{type(exc).__name__}")
+
+        logger.warning("تعذّر الإخراج المنظّم عبر كل المزودات: %s", "; ".join(failures))
+        return None
 
     # ---------------- غلاف متزامن (sync) ----------------
     def complete(self, prompt: str) -> str:
