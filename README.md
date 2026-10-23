@@ -171,6 +171,67 @@ python -m src.main --task "شغّل أوامر التحقق" --grant shell.exec 
 
 ---
 
+## 🔗 المعرفة والأبحاث وميكانيكا الكم — ثلاث حلقات مُتحقَّقة
+
+الطبقة الجديدة لا «تتصل بـ Drive» فقط، بل تحوّل ما يُقرأ إلى **مرجع قابل للاستشهاد**،
+وتستخدم الكم حيث ينفع فعلاً — مع مقارنة تُفضح إن لم ينفع.
+
+```
+Google Drive (قراءة فقط)  ─┐
+arXiv / S2 / Crossref     ─┼─►  CorpusIndex  ─►  مراجع [#L12-L18]  ─►  Planner
+ملفات محلية               ─┘         │
+                                     └─►  Evidence(kind="knowledge") في TaskResult
+
+QUBO (اختيار مرشحين)  ─►  SQA كمومي مُحاكى  ─►  benchmark: جشع + أمثل  ─►  حكم صادق
+```
+
+| الملف | الوظيفة | الحد الصريح |
+|---|---|---|
+| `src/integrations/drive.py` | مزامنة قراءة فقط، تزايدية بـ `modifiedTime` + SHA-256، `manifest` ذرّي، `--prune` صريح | لا كتابة إلى Drive إطلاقاً (`drive.readonly`) |
+| `src/knowledge/corpus.py` | تقطيع واعٍ بالفقرات (900 حرف، تداخل 150) + TF-IDF + استشهاد بأرقام الأسطر + JSONL ذرّي | بحث معجمي لا دلالي؛ لا خدمة خارجية |
+| `src/knowledge/sources.py` | arXiv + Semantic Scholar + Crossref، مهلة/إعادة محاولة/حد 25/كاش 72 ساعة | بلا مفاتيح؛ قد يتوقف مصدر فيُسجَّل ويُكمَل |
+| `src/quantum/simulator.py` | محاكي Aer محلي، لغة بوابات مُتحقَّقة، ≤12 كيوبت، بذرة ثابتة | محاكاة كلاسيكية، ليست حاسوباً كمياً |
+| `src/quantum/optimizer.py` | QUBO: SQA + جشع + تعداد كامل + `benchmark()` بحكم صادق | لا تسريع مُدَّعى؛ التكلفة أعلى من الجشع |
+
+### التشغيل
+
+```bash
+# 1) مزامنة Drive (قراءة فقط) وفهرسة ما نُزّل
+export GOOGLE_APPLICATION_CREDENTIALS=/path/service-account.json   # صلاحية drive.readonly
+python -m src.integrations.drive sync --folder-id "$GOOGLE_DRIVE_FOLDER_ID" --dest corpus/drive
+python -m src.integrations.drive status --manifest corpus/drive/_manifest.json
+
+# 2) جلب أبحاث مجانية وإضافتها إلى الفهرس (بلا مفاتيح)
+python -m src.knowledge.sources search "quantum annealing scheduling" --limit 5 \
+  --ingest .agent_knowledge/corpus.jsonl
+
+# 3) تشغيل مهمة بسياق موثّق (ويمكن جلب أبحاث في نفس الأمر)
+python -m src.main --task "لخّص ما نعرفه عن تكلفة التحسين الكمومي" --mode reason \
+  --knowledge .agent_knowledge/corpus.jsonl --learn "quantum annealing limits" --learn-limit 3
+
+# 4) التحقق الكامل بلا شبكة ولا مفاتيح
+python scripts/e2e_knowledge_quantum.py
+```
+
+الاعتماديات اختيارية ومنفصلة: `requirements-integrations.txt` و`requirements-quantum.txt`.
+بدونها يعمل النظام كما هو، وتُصدر الدوال رسالة إرشادية بدل انهيار.
+
+### لماذا لا ندّعي تسريعاً كمياً؟
+
+قرأنا الأدبيات قبل الكتابة، والنتيجة موثّقة في [`docs/research/README.md`](docs/research/README.md):
+لا ميزة قابلة للتكرار على بيانات عادية (`2505.24765`, `2507.08379`, `2511.01253`)،
+وQUBO للجدولة يخسر أمام CP-SAT بعد ~15 مهمة (`2605.25350`, `2607.13325`).
+لذلك `optimizer.benchmark()` يشغّل **الجشع والتعداد الكامل أيضاً** ويطبع من فاز.
+في مثالنا الواقعي (4 مرشحين، ميزانية 7، تعارض واحد) بلغ المحسّن الكمومي الأمثل
+بينما أخفق الجشع — لكن الكلفة الحسابية أعلى، وهذا مكتوب في الحكم نفسه.
+
+> ⚠️ **حدود مُعلنة:** اتصال arXiv/Drive الحقيقي لم يُختبر من بيئة التطوير هذه (الخروج
+> مقيّد بـ GitHub/PyPI)، فاستجابات الشبكة في الاختبارات محفوظة ومُحاكاة. مزامنة Drive
+> مُختبرة بعميل وهمي كامل. التفاصيل في `docs/research/README.md`.
+
+
+---
+
 ## 🛰️ لوحة المتابعة (Dashboard) — مراقبة حية بلا تشغيل
 
 واجهة **للقراءة فقط** تعرض ما يجري فعلاً داخل الوكيل، ولا تشغّل أي مهمة ولا تعدّل أي بيانات.
@@ -297,6 +358,8 @@ Actions ← Autonomous Agent Pipeline ← Run workflow ← اكتب المهمة
 | تشغيل ذاتي بدون سيرفر | ✅ GitHub Actions | 0$ |
 | لوحة متابعة حية | ✅ Streamlit (قراءة فقط) | 0$ |
 | إدارة ملفات وأوامر آمنة | ✅ Sandbox + قائمة بيضاء | 0$ |
+| معرفة موثّقة بأبحاث ومراجع | ✅ Corpus + arXiv/S2/Crossref | 0$ |
+| تحسين مستوحى من الكم | ✅ محاكي محلي + مقارنة صادقة | 0$ |
 
 ---
 
@@ -308,6 +371,10 @@ Actions ← Autonomous Agent Pipeline ← Run workflow ← اكتب المهمة
 - [ ] دعم Playwright MCP كبديل عن browser-use
 - [x] لوحة متابعة تفاعلية (Streamlit) لخطوات الوكيل والذاكرة
 - [x] عقود P0: سجل أدوات + سياسة وموافقات + حارس تكلفة + واجهة نماذج + تحقق
+- [x] مزامنة Google Drive قراءة فقط + فهرس معرفة قابل للاستشهاد
+- [x] جلب أبحاث مجانية (arXiv/S2/Crossref) بكاش وإعادة محاولة
+- [x] طبقة كم صادقة: محاكي + QUBO + مقارنة بالحل الأمثل
+- [ ] مزامنة ثنائية الاتجاه مع Drive (تحتاج موافقة صريحة قبل أي كتابة)
 - [ ] P1: بيئة برمجة معزولة تُعدّل الملفات وتشغّل الاختبارات (بدل القراءة فقط)
 - [ ] نشر اللوحة على استضافة مجانية (Streamlit Community Cloud) بنمط قراءة فقط
 

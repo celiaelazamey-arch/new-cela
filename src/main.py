@@ -139,6 +139,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="إنهاء التشغيل برمز 2 إذا لم تجتز المهمة شروط التحقق",
     )
+    parser.add_argument(
+        "--knowledge",
+        default=None,
+        metavar="CORPUS",
+        help="فهرس معرفة JSONL يُحقن سياقه الموثّق في الطلب (اختياري)",
+    )
+    parser.add_argument(
+        "--learn",
+        default=None,
+        metavar="QUERY",
+        help="جلب أوراق علمية مجانية وإضافتها للفهرس قبل التنفيذ (اختياري)",
+    )
+    parser.add_argument(
+        "--learn-limit",
+        type=int,
+        default=3,
+        help="عدد الأوراق المجلوبة لكل استعلام (افتراضياً 3)",
+    )
     return parser
 
 
@@ -201,6 +219,41 @@ def build_telemetry(args: argparse.Namespace) -> RunArchive | None:
     return archive
 
 
+def build_knowledge(args: argparse.Namespace):
+    """
+    يبني فهرس المعرفة قبل التشغيل — ويعيد None بصراحة عند عدم الطلب.
+
+    `--learn` يجلب أوراقاً مجانية ويفهرسها؛ وفشل الشبكة لا يمنع التشغيل.
+    """
+    path = getattr(args, "knowledge", None)
+    query = getattr(args, "learn", None)
+    if not path and not query:
+        return None
+
+    from src.knowledge.corpus import CorpusIndex
+
+    corpus = CorpusIndex(path or ".agent_knowledge/corpus.jsonl")
+
+    if query:
+        from src.knowledge.sources import PaperSearch, ingest_papers
+
+        try:
+            report = PaperSearch().search(query, limit=getattr(args, "learn_limit", 3))
+        except Exception as exc:  # noqa: BLE001 — البحث رفاهية لا شرط للتشغيل
+            logger.warning(
+                "تعذّر جلب الأبحاث (%s) — نُكمل بالفهرس الحالي.", type(exc).__name__
+            )
+        else:
+            logger.info("أبحاث: %s", report.summary())
+            if report.papers:
+                logger.info("قطع معرفة مضافة من الأوراق: %d", ingest_papers(report, corpus))
+            for name, reason in report.errors.items():
+                logger.warning("تعذّر جلب %s (%s) — نُكمل بالفهرس الحالي.", name, reason)
+
+    logger.info("فهرس المعرفة: %d قطعة من %d مصدراً", len(corpus), len(corpus.sources()))
+    return corpus
+
+
 async def run_agent(args: argparse.Namespace) -> str | TaskResult:
     """يوجّه المهمة إلى الوحدة المناسبة حسب النمط المختار."""
     # نمط code لا يحتاج نموذجاً لغوياً — يُنفّذ مباشرة في البيئة المعزولة
@@ -224,6 +277,7 @@ async def run_agent(args: argparse.Namespace) -> str | TaskResult:
         quota=registry.quota,
         memory=build_memory(args),
         telemetry=build_telemetry(args),
+        knowledge=build_knowledge(args),
     )
     result = await engine.run(build_request(args))
     logger.info("نتيجة التحقق: %s", result.summary())

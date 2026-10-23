@@ -52,6 +52,7 @@ class AgentEngine:
         telemetry: Any = None,
         planner_factory: Any = None,
         tool_context: ToolContext | None = None,
+        knowledge: Any = None,
     ) -> None:
         self.router = router
         self.registry = registry
@@ -60,6 +61,8 @@ class AgentEngine:
         self.telemetry = telemetry
         self.planner_factory = planner_factory or Planner
         self.tool_context = tool_context
+        # فهرس المعرفة (اختياري): أي كائن يوفّر context_for(query) -> str
+        self.knowledge = knowledge
 
     # ================= الواجهة الرئيسية =================
     async def run(self, request: TaskRequest) -> TaskResult:
@@ -89,6 +92,22 @@ class AgentEngine:
                         ref=result.name,
                         content=result.as_evidence(),
                         ok=result.ok,
+                    )
+                )
+
+        # ---------- 2ب) سياق المعرفة الموثّق ----------
+        if self.knowledge is not None:
+            knowledge_block = self._knowledge_context(request.task)
+            if knowledge_block:
+                context_block = "\n\n".join(
+                    part for part in (knowledge_block, context_block) if part
+                )
+                evidence.append(
+                    Evidence(
+                        kind="knowledge",
+                        ref="corpus",
+                        content=knowledge_block,
+                        ok=True,
                     )
                 )
 
@@ -169,6 +188,21 @@ class AgentEngine:
         )
 
     # ================= الفحص المسبق =================
+    def _knowledge_context(self, task: str) -> str:
+        """
+        يسترجع مقتطفات موثّقة من فهرس المعرفة — بصمت عند أي خطأ.
+
+        الفهرس خدمة مساعدة: تعطّله لا يجوز أن يُسقط المهمة.
+        """
+        if not task or not task.strip():
+            return ""
+        try:
+            block = self.knowledge.context_for(task)
+        except Exception as exc:  # noqa: BLE001 — المعرفة لا تُسقط المهمة
+            logger.warning("تعذّر استرجاع سياق المعرفة (%s).", type(exc).__name__)
+            return ""
+        return block if isinstance(block, str) else ""
+
     def _preflight(self) -> str:
         """يعيد سبب المنع (أو نصاً فارغاً إذا كان التنفيذ مسموحاً)."""
         remaining = self.quota.remaining()

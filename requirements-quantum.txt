@@ -1,0 +1,4 @@
+# طبقة الكم (اختيارية) — محاكاة محلية بلا تكلفة، لا حساب سحابي ولا مفاتيح.
+# التثبيت: pip install -r requirements-quantum.txt
+qiskit>=1.2,<2
+qiskit-aer>=0.15,<1

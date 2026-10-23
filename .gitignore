@@ -29,3 +29,7 @@ comment_body.md
 htmlcov/
 playwright-report/
 test-results/
+
+# ---- فهرس المعرفة والأبحاث والكاش (بيانات محلية، لا تُرفع) ----
+.agent_knowledge/
+corpus/drive/
