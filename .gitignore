@@ -13,6 +13,7 @@ venv/
 # ---- الذاكرة الاستراتيجية (بيانات محلية، لا تُرفع) ----
 .agent_memory/
 .agent_runs/
+.agent_cognitive/
 *.jsonl.tmp
 *.json.tmp
 

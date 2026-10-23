@@ -43,8 +43,8 @@ class ToolContext:
         self.timeout = timeout
 
 
-# معالج الأداة: (وسائط متحقَّقة، السياق) ← نص النتيجة
-ToolHandler = Callable[[BaseModel, ToolContext], Awaitable[str]]
+# معالج الأداة: نص للأدوات العادية أو ToolResult للأدوات ذات القياس المنظّم.
+ToolHandler = Callable[[BaseModel, ToolContext], Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,11 @@ class ToolResult(BaseModel):
     denied: bool = False
     reason: str = ""
     duration_ms: int = 0
+    # قياسات اختيارية للأدوات التنفيذية؛ لا تُستنتج من نص الإجابة.
+    returncode: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    timed_out: bool = False
 
     def as_evidence(self) -> str:
         """نص قصير يُسجَّل كدليل في نتيجة المهمة."""
@@ -197,6 +202,22 @@ class ToolRegistry:
             ctx.policy.record_outcome(spec.name, spec.risk, spec.scope, ok=False, note=message)
             logger.warning("فشل تنفيذ الأداة %s (%s).", name, type(exc).__name__)
             return _result(name, started, error=message)
+
+        if isinstance(output, ToolResult):
+            result = output.model_copy(
+                update={
+                    "name": spec.name,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                }
+            )
+            ctx.policy.record_outcome(
+                spec.name,
+                spec.risk,
+                spec.scope,
+                ok=result.ok,
+                note=result.error or result.reason,
+            )
+            return result
 
         ctx.policy.record_outcome(spec.name, spec.risk, spec.scope, ok=True)
         return _result(name, started, output=str(output))

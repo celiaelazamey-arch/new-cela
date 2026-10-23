@@ -156,9 +156,17 @@ def default_self_model(tests_passing: int = 0) -> SelfModel:
                 evidence="المنطق مُختبر بعميل وهمي؛ واجهة Drive الحقيقية تحتاج رمز drive.file",
             ),
             Capability(
-                name="تعديل ملفات المشروع وتشغيل اختباراته في بيئة معزولة (P1)",
+                name="إصلاح اختبار وفق خطة استبدال محدودة مع بصمات وcheckpoint",
+                status="verified",
+                evidence=(
+                    "src/cognitive/ + replace_text — قبل/بعد واستئناف ومنع خروج، "
+                    "مغطى باختبارات القبول المحلية"
+                ),
+            ),
+            Capability(
+                name="تشخيص عيب برمجي وتوليد إصلاح صحيح تلقائياً",
                 status="absent",
-                evidence="لم يُبنَ بعد",
+                evidence="الدورة تتحقق من خطة منظّمة مُدخلة؛ لا تدّعي اختراع التشخيص بنفسها",
             ),
             Capability(
                 name="وعي فينومينولوجي أو تجربة ذاتية",

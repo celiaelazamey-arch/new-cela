@@ -37,6 +37,13 @@ new-cela/
 │   │   ├── data.py                # طبقة بيانات اللوحة (بلا Streamlit — قابلة للاختبار)
 │   │   ├── app.py                 # واجهة Streamlit (قراءة فقط)
 │   │   └── __main__.py            # مشغّل: python -m src.dashboard
+│   ├── cognitive/
+│   │   ├── state.py               # الحالة والانتقالات وcheckpoints
+│   │   ├── goals.py               # أهداف ومعايير نجاح وميزانيات صريحة
+│   │   ├── store.py               # سجل أدلة hash-chained
+│   │   ├── world.py               # لقطات بصمات/Git/أوامر وdiff
+│   │   ├── loop.py                # إصلاح محدود بأثر وقياس واستئناف
+│   │   └── report.py              # تقرير عربي مشتق من الحالة
 │   ├── execution/
 │   │   └── sandbox.py             # منفذ أوامر معزول (قائمة بيضاء + مهلة + بلا shell)
 │   ├── browser/
@@ -142,7 +149,7 @@ TaskRequest
 | **محرك الوكيل** | `src/core/engine.py` | `TaskResult.verified` لا يصبح `True` إلا باجتياز كل الشروط؛ وإلا `UNVERIFIED` + تنبيه صريح |
 | **عقد المهمة** | `src/core/task.py` | الطلب والأدلة وشروط القبول بيانات صريحة، لا استنتاج ضمني |
 
-**الأدوات المدمجة:** `read_file` (قراءة داخل الجذور المسموحة) • `search_files` (بحث نصي) • `run_command` (قائمة بيضاء فقط، خطر `execute` ⇒ موافقة).
+**الأدوات المدمجة:** `read_file` (قراءة داخل الجذور المسموحة) • `search_files` (بحث نصي) • `replace_text` (تعديل ذرّي مشروط بالبصمة، خطر `write` ⇒ موافقة) • `run_command` (قائمة بيضاء فقط، خطر `execute` ⇒ موافقة، مع رمز خروج منظّم).
 
 ### استخدام عملي
 
@@ -168,6 +175,34 @@ python -m src.main --task "شغّل أوامر التحقق" --grant shell.exec 
 ```
 
 > ⚠️ **تصريح لا ادّعاء:** `gemini` و`groq` مُعلنان `verified_free` في `model_api.py` بناءً على مراجعة يدوية لحدودهما المجانية — ولم يُنفَّذ تحقق آلي من المنطقة/البطاقة/الفوترة. أي مزود جديد يبدأ `unverified` وممنوع حتى يُصرَّح به.
+
+---
+
+## 🧭 Celia Cognitive Core — هدف وحالة وأدلة قابلة للاستئناف
+
+الطبقة الجديدة تحوّل «أنجزت» إلى سؤال قابل للقياس: ما الهدف؟ ما معيار نجاحه؟ ما الذي تغيّر فعلاً؟ وما رمز خروج الاختبار؟ الحالة بيانات مشتقة من الأدلة، وليست تقريراً ذاتياً حراً.
+
+| المكوّن | الضمانة العملية |
+|---|---|
+| `CognitiveState` + `Transition` | كل انتقال يحمل `before/after` وبصمتيهما؛ الافتراضات وعدم اليقين منفصلان عن الأدلة |
+| `Goal` | معايير `command_exit` و`file_changed` و`engine_checks` + ميزانية خطوات/نداءات وإعادة تخطيط واحدة كحد أقصى |
+| `EvidenceStore` | JSONL مترابط بـSHA-256 يكشف التعديل الجزئي والحذف وإعادة الترتيب |
+| `WorldModel` | لقطة `git sha` وبصمات ملفات ونتائج أوامر، ثم diff قابل للتفسير |
+| `CognitiveLoop` | خطة ≤3 استبدالات منظّمة، موافقة قبل الكتابة/التنفيذ، قياس بعد الفعل، وcheckpoint بعد الانتقالات |
+| `CognitiveReport` | عرض عربي: ما تم، ما بقي، لماذا، وما لم يُتحقق |
+
+`AgentEngine` يرفق `cognitive` و`cognitive_report` و`evidence_head` بالنتيجة افتراضياً (بلا كتابة قرص ما لم تُمرّر مخازن). هذا لا يغيّر `verified` ولا يستأنف Planner القديم. مسار `CognitiveLoop.repair` هو الذي يوفر receipts واستئنافاً على مستوى الأفعال.
+
+```python
+goal = Goal.for_repair("أصلح الجمع", "pytest -q test_app.py", "app.py")
+plan = RepairPlan(steps=[
+    RepairAction(path="app.py", old="return a - b", new="return a + b")
+])
+result = await loop.repair(goal, plan, run_id="repair-001")
+assert result.verified  # مشتقة من exit=0 وتغيّر البصمة، لا من نص النموذج
+```
+
+**الحد الصريح:** الدورة تتحقق من خطة إصلاح منظّمة مُدخلة؛ لا تدّعي تشخيص أي عيب وتوليد علاجه تلقائياً. والتعلّم دروس ذاكرة، لا تحديث أوزان. التفاصيل ومهمة القبول والقيود في [`docs/cognitive-core.md`](docs/cognitive-core.md).
 
 ---
 

@@ -7,23 +7,28 @@
 |---|---|---|---|
 | `read_file` | read | `fs.read` | تقرأ ملفاً نصياً داخل الجذور المسموحة |
 | `search_files` | read | `fs.read` | تبحث عن نص في ملفات المشروع وتعيد السطر والسياق |
+| `replace_text` | write | `fs.write` | استبدال محدود وذرّي بشرط البصمة وعدد المواضع |
 | `run_command` | execute | `shell.exec` | تشغيل أمر من **قائمة بيضاء** عبر SandboxExecutor |
 | `ocr_extract` | read | `fs.read` | تستخرج نصاً من صورة/PDF داخل الجذور المسموحة |
 
-قاعدة أمان: `read_file` و`search_files` لا تخرجان عن `PolicyEngine.allowed_roots`
-مهما كان المسار المُمرَّر — والتحقق مزدوج (في السجل وفي الأداة).
+قاعدة أمان: أدوات الملفات و`cwd` لا تخرج عن `PolicyEngine.allowed_roots` مهما كان
+المسار المُمرَّر — والتحقق مزدوج (في السجل وفي الأداة)، والكتابة/التنفيذ بموافقة.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
+import stat
+import tempfile
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from src.core.policy import PolicyDenied, ToolRisk
 from src.execution.sandbox import SandboxExecutor
-from src.tools.registry import ToolContext, ToolRegistry, ToolSpec
+from src.tools.registry import ToolContext, ToolRegistry, ToolResult, ToolSpec
 
 logger = logging.getLogger("new-cela.tools.builtin")
 
@@ -142,16 +147,95 @@ class RunCommandParams(BaseModel):
 
     command: str = Field(..., min_length=1, description="أمر من القائمة البيضاء فقط")
     timeout: int = Field(default=30, ge=1, le=120)
+    cwd: str = Field(default=".", description="مجلد التشغيل داخل الجذور المسموحة")
 
 
-async def run_command(params: BaseModel, ctx: ToolContext) -> str:
+async def run_command(params: BaseModel, ctx: ToolContext) -> ToolResult:
+    """يعيد رمز الخروج والمخرجات حتى عند فشل اختبار؛ الفشل قياس لا انهيار."""
     assert isinstance(params, RunCommandParams)
+    cwd = ctx.policy.resolve_path(params.cwd)
+    if not cwd.is_dir():
+        raise NotADirectoryError(f"مجلد التشغيل غير موجود: {params.cwd}")
     executor = SandboxExecutor(timeout=min(params.timeout, ctx.timeout))
-    result = await executor.run(params.command)
+    result = await executor.run(params.command, cwd=cwd)
     output = (result.stdout or "").strip()
+    error = ""
     if result.returncode != 0:
-        raise RuntimeError(f"رمز الخروج {result.returncode}: {(result.stderr or output)[:500]}")
-    return output[:4000] or "(بلا مخرجات)"
+        error = f"رمز الخروج {result.returncode}: {(result.stderr or output)[:500]}"
+    return ToolResult(
+        name="run_command",
+        ok=result.returncode == 0,
+        output=output[:4000] or ("(بلا مخرجات)" if result.returncode == 0 else ""),
+        error=error,
+        reason="command_failed" if error else "",
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        timed_out=result.timed_out,
+    )
+
+
+# ================= replace_text =================
+class ReplaceTextParams(BaseModel):
+    """استبدال حتمي ومشروط بالبصمة؛ لا ينفّذ نصاً ولا يكتب خارج الجذر."""
+
+    path: str = Field(..., min_length=1)
+    old: str = Field(..., min_length=1)
+    new: str = ""
+    expected_occurrences: int = Field(default=1, ge=1, le=100)
+    expected_sha256: str = Field(default="", pattern=r"^$|^[0-9a-f]{64}$")
+
+
+async def replace_text(params: BaseModel, ctx: ToolContext) -> str:
+    """يعدّل ملفاً نصياً ذرّياً بعد إثبات عدد المواضع وبصمة النسخة المقروءة."""
+    assert isinstance(params, ReplaceTextParams)
+    if params.old == params.new:
+        raise ValueError("الاستبدال بلا أثر: النصان متطابقان.")
+    resolved = ctx.policy.resolve_path(params.path)
+    if not resolved.is_file():
+        raise FileNotFoundError(f"الملف غير موجود: {params.path}")
+    original_stat = resolved.stat()
+    data = await asyncio.to_thread(resolved.read_bytes)
+    if b"\x00" in data[:2048]:
+        raise ValueError(f"ملف ثنائي غير مدعوم: {params.path}")
+    before = data.decode("utf-8")
+    before_hash = hashlib.sha256(data).hexdigest()
+    if params.expected_sha256 and params.expected_sha256 != before_hash:
+        raise RuntimeError(
+            f"تغيّر الملف منذ القراءة: المتوقع {params.expected_sha256}، الفعلي {before_hash}."
+        )
+    occurrences = before.count(params.old)
+    if occurrences != params.expected_occurrences:
+        raise ValueError(
+            f"عدد مواضع النص {occurrences}، بينما المطلوب {params.expected_occurrences}."
+        )
+    after = before.replace(params.old, params.new)
+    payload = after.encode("utf-8")
+    after_hash = hashlib.sha256(payload).hexdigest()
+
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".replace-", dir=resolved.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, stat.S_IMODE(original_stat.st_mode))
+        os.replace(temporary, resolved)
+        # Python's pyc validator uses whole-second mtime + size. A same-size
+        # edit within one second must not leave a stale, apparently valid cache.
+        replaced_stat = resolved.stat()
+        if int(replaced_stat.st_mtime) <= int(original_stat.st_mtime):
+            os.utime(
+                resolved,
+                ns=(replaced_stat.st_atime_ns, original_stat.st_mtime_ns + 1_000_000_000),
+            )
+    finally:
+        temporary.unlink(missing_ok=True)
+    return (
+        f"{params.path}: replacements={occurrences}\n"
+        f"before_sha256={before_hash}\nafter_sha256={after_hash}"
+    )
 
 
 # ================= ocr_extract =================
@@ -234,13 +318,26 @@ def build_default_registry(ctx: ToolContext | None = None) -> ToolRegistry:
     )
     registry.register(
         ToolSpec(
+            name="replace_text",
+            description="استبدال نصي محدود داخل ملف، ببصمة قبل/بعد وكتابة ذرّية — يتطلب موافقة",
+            params=ReplaceTextParams,
+            handler=replace_text,
+            risk=ToolRisk.WRITE,
+            scope="fs.write",
+            path_params=("path",),
+            examples=('{"path": "app.py", "old": "return 1", "new": "return 2"}',),
+        )
+    )
+    registry.register(
+        ToolSpec(
             name="run_command",
             description="تنفيذ أمر من قائمة بيضاء آمنة (بلا shell) — يتطلب موافقة",
             params=RunCommandParams,
             handler=run_command,
             risk=ToolRisk.EXECUTE,
             scope="shell.exec",
-            examples=('{"command": "python --version"}',),
+            path_params=("cwd",),
+            examples=('{"command": "python --version", "cwd": "."}',),
         )
     )
     return registry
@@ -250,11 +347,13 @@ __all__ = [
     "OcrExtractParams",
     "PolicyDenied",
     "ReadFileParams",
+    "ReplaceTextParams",
     "RunCommandParams",
     "SearchFilesParams",
     "build_default_registry",
     "ocr_extract",
     "read_file",
+    "replace_text",
     "run_command",
     "search_files",
 ]

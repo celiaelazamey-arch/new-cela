@@ -12,6 +12,7 @@ import asyncio
 import logging
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger("new-cela.sandbox")
 
@@ -61,8 +62,12 @@ class SandboxExecutor:
             )
         return args
 
-    async def run(self, command: str) -> ExecResult:
-        """ينفّذ أمراً من القائمة البيضاء ويعيد النتيجة المهيكلة."""
+    async def run(self, command: str, cwd: str | Path | None = None) -> ExecResult:
+        """ينفّذ أمراً من القائمة البيضاء ويعيد النتيجة المهيكلة.
+
+        `cwd` يُحلّ ويُحصر في السياسة قبل وصوله هنا؛ تمريره يجعل الاختبارات
+        تعمل داخل المستودع المعزول لا داخل عملية الوكيل نفسها.
+        """
         args = self._validate(command)
         logger.info("تنفيذ أمر معزول: %s", command[:100])
 
@@ -70,6 +75,7 @@ class SandboxExecutor:
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd) if cwd is not None else None,
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout)
