@@ -18,6 +18,7 @@ def test_package_imports():
         "src.providers.llm_router",
         "src.core",
         "src.core.schemas",
+        "src.core.memory",
         "src.core.planner",
         "src.execution",
         "src.execution.sandbox",

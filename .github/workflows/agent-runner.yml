@@ -56,6 +56,17 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium --with-deps
 
+      # الذاكرة الاستراتيجية تبقى بين التشغيلات دون رفعها إلى المستودع:
+      # استعادة أحدث كاش للفرع، ثم حفظ كاش جديد في نهاية المهمة تلقائياً.
+      - name: Restore Strategic Memory
+        uses: actions/cache@v4
+        with:
+          path: .agent_memory
+          key: agent-memory-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            agent-memory-${{ github.ref_name }}-
+            agent-memory-
+
       - name: Resolve Task
         id: resolve
         env:
@@ -102,6 +113,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-result
-          path: agent_result.txt
+          # المخرجات النصية + تقرير التشغيل الذي تقرأه لوحة المتابعة
+          path: |
+            agent_result.txt
+            .agent_runs/
           if-no-files-found: ignore
           retention-days: 7

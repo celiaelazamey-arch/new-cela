@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     agent_max_steps: int = 15
     agent_timeout: int = 60
 
+    # ---- الذاكرة الاستراتيجية (RAG معجمي محلي — بلا خدمة خارجية) ----
+    agent_memory_path: str = ".agent_memory/memory.jsonl"
+    agent_memory_top_k: int = 4
+    agent_memory_max_entries: int = 500
+    agent_memory_min_score: float = 0.05
+
+    # ---- سجل التشغيلات (مصدر بيانات لوحة المتابعة) ----
+    agent_runs_path: str = ".agent_runs"
+    agent_runs_keep: int = 50
+
     @property
     def has_any_provider(self) -> bool:
         """هل يوجد مزود واحد على الأقل مهيأ؟"""

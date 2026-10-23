@@ -10,6 +10,12 @@ __pycache__/
 .venv/
 venv/
 
+# ---- الذاكرة الاستراتيجية (بيانات محلية، لا تُرفع) ----
+.agent_memory/
+.agent_runs/
+*.jsonl.tmp
+*.json.tmp
+
 # ---- مخرجات التشغيل ----
 *.log
 agent_task.txt
@@ -23,3 +29,7 @@ comment_body.md
 htmlcov/
 playwright-report/
 test-results/
+
+# ---- فهرس المعرفة والأبحاث والكاش (بيانات محلية، لا تُرفع) ----
+.agent_knowledge/
+corpus/drive/

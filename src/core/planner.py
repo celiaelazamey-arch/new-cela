@@ -12,6 +12,15 @@
   • استخراج نصي احتياطي لـ JSON (يتعامل مع الأسوار والضوضاء).
   • قبول متسامح عند تعذّر التقييم — يمنع الدوران اللانهائي.
   • حدود صارمة: max_steps للخطوات + max_retries لكل خطوة (حماية الحصة المجانية).
+
+الذاكرة الاستراتيجية (اختيارية عبر `memory=`):
+  • قبل التخطيط: يُسترجَع ما يشبه المهمة من الجلسات السابقة ويُحقن في الـ prompts.
+  • بعد الانتهاء: تُحفَظ الخطوات الناجحة/الفاشلة وخلاصة المهمة للمرات القادمة.
+  • عند `memory=None` (الافتراضي) لا يحدث أي إدخال/إخراج على القرص إطلاقاً.
+
+المراقبة (اختيارية عبر `telemetry=RunArchive`):
+  • تقرير تشغيل يُحدَّث بعد كل خطوة (كتابة ذرّية) ⇒ لوحة متابعة حية.
+  • عند `telemetry=None` لا يُكتب أي ملف — نفس قاعدة الذاكرة.
 """
 from __future__ import annotations
 
@@ -22,7 +31,22 @@ from typing import TypeVar
 
 from pydantic import ValidationError
 
-from src.core.schemas import CritiqueOutput, PlanOutput, StepRecord, StepStatus
+from src.core.memory import (
+    MAX_RENDERED_CHARS,
+    MIN_SIMILARITY,
+    MemoryHit,
+    MemoryRetriever,
+    MemoryStore,
+    build_context_block,
+)
+from src.core.schemas import (
+    CritiqueOutput,
+    MemoryKind,
+    PlanOutput,
+    StepRecord,
+    StepStatus,
+)
+from src.core.telemetry import RunArchive
 from src.providers.llm_router import LLMRouter
 
 logger = logging.getLogger("new-cela.planner")
@@ -34,7 +58,7 @@ PLAN_PROMPT = """أنت المخطّط (Planner) في نظام وكيل مستق
 
 المهمة:
 {task}
-
+{memory_block}
 أعد الإجابة JSON حصراً بهذا الشكل:
 {{"steps": ["وصف الخطوة الأولى", "وصف الخطوة الثانية", ...]}}"""
 
@@ -45,7 +69,7 @@ EXECUTE_PROMPT = """أنت المنفّذ (Executor) في نظام وكيل مس
 
 الخطوة الحالية ({index}/{total}):
 {description}
-{feedback_block}
+{memory_block}{feedback_block}
 نفّذ هذه الخطوة بدقة وأعد النتيجة التفصيلية فقط."""
 
 CRITIQUE_PROMPT = """أنت المقيّم (Critic) في نظام وكيل مستقل. قيّم نتيجة تنفيذ خطوة بصراحة وموضوعية.
@@ -108,30 +132,76 @@ class Planner:
         router: LLMRouter | None = None,
         max_steps: int | None = None,
         max_retries: int = 2,
+        memory: MemoryStore | MemoryRetriever | None = None,
+        remember: bool = True,
+        telemetry: RunArchive | None = None,
     ) -> None:
         self.router = router or LLMRouter()
         self.max_steps = max_steps or self.router.settings.agent_max_steps
         self.max_retries = max(1, max_retries)
+        self.remember = remember
+        self.telemetry = telemetry
+
+        # الذاكرة اختيارية تماماً: بدون تمريرها لا يحدث أي إدخال/إخراج على القرص
+        router_settings = getattr(self.router, "settings", None)
+        if isinstance(memory, MemoryStore):
+            self.memory: MemoryStore | None = memory
+            self.retriever: MemoryRetriever | None = MemoryRetriever(
+                memory,
+                top_k=getattr(router_settings, "agent_memory_top_k", 4),
+                min_score=getattr(router_settings, "agent_memory_min_score", MIN_SIMILARITY),
+            )
+        else:
+            self.retriever = memory
+            self.memory = getattr(memory, "store", None)
+
         self.history: list[StepRecord] = []
+        self.last_hits: list[MemoryHit] = []
 
     # ================= الواجهة الرئيسية =================
-    async def solve(self, task: str) -> str:
-        """يشغّل الحلقة الكاملة: تخطيط ← تنفيذ وتقييم ← تركيب."""
-        steps = await self._create_plan(task)
-        logger.info("الخطة المعتمدة: %d خطوة/خطوات", len(steps))
+    async def solve(self, task: str, context_block: str = "") -> str:
+        """
+        يشغّل الحلقة الكاملة: استرجاع ← تخطيط ← تنفيذ وتقييم ← تركيب ← حفظ.
 
+        `context_block`: سياق جمعه محرك الوكيل بأدوات (ملفات/بحث) قبل التخطيط —
+        يُحقن مع كتلة الذاكرة في prompts المخطّط والمنفّذ.
+        """
         self.history = []
-        total = min(len(steps), self.max_steps)
-        for index, description in enumerate(steps[: self.max_steps], start=1):
-            record = await self._run_step(task, index, total, description)
-            self.history.append(record)
+        self.last_hits = []
+        session = self.telemetry.start(task) if self.telemetry is not None else None
 
-        return await self._synthesize(task, self.history)
+        try:
+            memory_block = _join_blocks(context_block, self._recall(task))
+            if session is not None:
+                session.record_recall(self.last_hits)
+
+            steps = await self._create_plan(task, memory_block)
+            logger.info("الخطة المعتمدة: %d خطوة/خطوات", len(steps))
+            if session is not None:
+                session.set_planned_steps(min(len(steps), self.max_steps))
+
+            total = min(len(steps), self.max_steps)
+            for index, description in enumerate(steps[: self.max_steps], start=1):
+                record = await self._run_step(task, index, total, description, memory_block)
+                self.history.append(record)
+                if session is not None:
+                    session.record_step(record)
+
+            answer = await self._synthesize(task, self.history)
+            written = self._remember(task, answer)
+            if session is not None:
+                session.set_memories_written(written)
+                session.finish(answer)
+            return answer
+        except Exception as exc:
+            if session is not None:
+                session.fail(exc)
+            raise
 
     # ================= المرحلة 1: التخطيط (Planner) =================
-    async def _create_plan(self, task: str) -> list[str]:
+    async def _create_plan(self, task: str, memory_block: str = "") -> list[str]:
         """يفكّك المهمة لخطوات — بإخراج منظّم ثم استخراج نصي ثم خطوة واحدة كحل أخير."""
-        prompt = PLAN_PROMPT.format(task=task)
+        prompt = PLAN_PROMPT.format(task=task, memory_block=_indent_block(memory_block))
 
         plan = await self._try_structured(prompt, PlanOutput)
         if plan is not None:
@@ -155,7 +225,14 @@ class Planner:
         return [task]
 
     # ================= المرحلة 2+3: التنفيذ والتقييم (Executor + Critic) =================
-    async def _run_step(self, task: str, index: int, total: int, description: str) -> StepRecord:
+    async def _run_step(
+        self,
+        task: str,
+        index: int,
+        total: int,
+        description: str,
+        memory_block: str = "",
+    ) -> StepRecord:
         """ينفّذ خطوة واحدة مع تقييم ذاتي وإعادة محاولة تصحيحية."""
         record = StepRecord(index=index, description=description, status=StepStatus.IN_PROGRESS)
         feedback = ""
@@ -171,6 +248,7 @@ class Planner:
                     index=index,
                     total=total,
                     description=description,
+                    memory_block=_indent_block(memory_block),
                     feedback_block=feedback_block,
                 )
             )
@@ -184,6 +262,8 @@ class Planner:
                 logger.info("✓ الخطوة %d مقبولة (تقييم غير متوفر)", index)
                 return record
 
+            record.score = critique.score
+            record.suggestion = critique.suggestion
             record.critiques.append(f"[{critique.score}/10] {critique.feedback}")
 
             if critique.passed:
@@ -241,6 +321,71 @@ class Planner:
             return response.split("FINAL ANSWER:", 1)[1].strip()
         return response
 
+    # ================= الذاكرة الاستراتيجية =================
+    def _recall(self, query: str) -> str:
+        """يسترجع كتلة الذاكرة لهذا الاستعلام ويسجّل النتائج للمتابعة."""
+        if self.retriever is None:
+            return ""
+        try:
+            hits = self.retriever.search(query)
+        except Exception as exc:  # noqa: BLE001 — الذاكرة مساعدة، لا حرجة
+            logger.warning("تعذّر استرجاع الذاكرة (%s) — المتابعة بدونها.", type(exc).__name__)
+            return ""
+
+        if not hits:
+            return ""
+
+        self.last_hits.extend(hits)
+        max_chars = getattr(self.retriever, "max_chars", MAX_RENDERED_CHARS)
+        logger.info("استُرجعت %d ذكرى ذات صلة من الجلسات السابقة.", len(hits))
+        return build_context_block(hits, max_chars=max_chars)
+
+    def _remember(self, task: str, answer: str) -> int:
+        """يحفظ دروس المهمة الحالية ويعيد عدد الذكريات المكتوبة — لا يفشل التنفيذ أبداً."""
+        if not self.remember or self.memory is None or not self.history:
+            return 0
+
+        written = 0
+        try:
+            for record in self.history:
+                if self.memory.add_step_record(record, task=task) is not None:
+                    written += 1
+
+            scored = [record.score for record in self.history if record.score]
+            average = round(sum(scored) / len(scored)) if scored else 0
+            headline = " ".join((answer or "").split())[:240] or "اكتملت المهمة بلا إجابة نصية"
+            failed = [record for record in self.history if not record.succeeded]
+
+            if failed:
+                saved = self.memory.add(
+                    content=(
+                        f"مهمة «{task}»: نجحت {len(self.history) - len(failed)}/"
+                        f"{len(self.history)} خطوة. الخلاصة: {headline}"
+                    ),
+                    kind=MemoryKind.LESSON,
+                    task=task,
+                    score=average,
+                    tags=["partial"],
+                )
+            else:
+                saved = self.memory.add(
+                    content=f"مهمة «{task}»: {headline}",
+                    kind=MemoryKind.SUCCESS,
+                    task=task,
+                    score=average,
+                )
+
+            if saved is not None:
+                written += 1
+
+            maybe_compact = getattr(self.memory, "maybe_compact", None)
+            if callable(maybe_compact):
+                maybe_compact()
+        except Exception as exc:  # noqa: BLE001 — مقصود: فشل الذاكرة لا يُسقط المهمة
+            logger.warning("تعذّر حفظ الذاكرة (%s) — النتيجة سليمة.", type(exc).__name__)
+
+        return written
+
     # ================= أداة مساعدة: الإخراج المنظّم =================
     async def _try_structured(self, prompt: str, model: type[T]) -> T | None:
         """يحصل على كائن منظّم عبر Function Calling؛ None إذا تعذّر."""
@@ -249,3 +394,14 @@ class Planner:
         except Exception as exc:  # noqa: BLE001 — مقصود: أي فشل يتحول للمسار النصي
             logger.warning("الإخراج المنظّم غير متاح (%s) — التحويل للنص.", type(exc).__name__)
             return None
+
+
+def _indent_block(block: str) -> str:
+    """يجعل الكتلة سطراً مستقلاً بمسافة فاصلة قبلها (أو فراغاً عند غيابها)."""
+    return f"\n{block}\n" if block else ""
+
+
+def _join_blocks(*blocks: str) -> str:
+    """يدمج كتل السياق (أدوات + ذاكرة) بفاصل واضح، ويتجاهل الفارغ منها."""
+    parts = [block.strip() for block in blocks if block and block.strip()]
+    return "\n\n".join(parts)
