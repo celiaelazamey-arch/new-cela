@@ -170,13 +170,111 @@ def loop_quantum() -> None:
           f"gain={report.gain_vs_greedy:+.3f} gap={report.gap_to_optimum:.3f}")
 
 
+def loop_two_way() -> None:
+    """مزامنة ثنائية الاتجاه: خطة أولاً، ثم رفض افتراضي، ثم تنفيذ بموافقة."""
+    from src.sync.engine import apply_plan, load_base, md5_of_bytes, plan_sync
+
+    class FakeRemote:
+        def __init__(self) -> None:
+            self.files: dict[str, tuple[str, str]] = {"remote-only.md": ("r9", "محتوى بعيد")}
+            self.writes = 0
+
+        def list_folder(self, folder_id: str):
+            from src.sync.engine import RemoteEntry
+
+            return [
+                RemoteEntry(id=id_, name=name, md5=md5_of_bytes(content.encode()))
+                for name, (id_, content) in sorted(self.files.items())
+            ]
+
+        def download(self, entry):
+            return self.files[entry.name][1]
+
+        def upload(self, folder_id, name, content):
+            self.writes += 1
+            self.files[name] = (f"new{self.writes}", content)
+            return f"new{self.writes}"
+
+        def update(self, remote_id, content):
+            self.writes += 1
+            for name, (id_, _) in list(self.files.items()):
+                if id_ == remote_id:
+                    self.files[name] = (id_, content)
+                    return id_
+            raise KeyError(remote_id)
+
+        def delete(self, remote_id):
+            raise AssertionError("لا حذف في هذا الاختبار")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        shared = Path(tmp) / "shared"
+        shared.mkdir()
+        (shared / "local-note.md").write_text("ملاحظة محلية", encoding="utf-8")
+        remote = FakeRemote()
+        state = shared / "_sync_state.json"
+
+        plan = plan_sync("folder-2", shared, remote.list_folder("folder-2"), base={})
+        ops = sorted(action.op for action in plan.actions)
+        check("مزامنة: خطة بلا كتابة", ops == ["download", "upload"] and remote.writes == 0,
+              plan.summary())
+
+        denied = apply_plan(plan, remote, base={}, base_path=state)
+        check("مزامنة: الرفض الافتراضي يمنع كل كتابة",
+              remote.writes == 0 and len(denied.denied) == 2, denied.summary())
+
+        approved = apply_plan(plan, remote, base={}, base_path=state,
+                              approve=lambda action: True)
+        base = load_base(state)
+        check("مزامنة: التنفيذ بموافقة يرفع وينزّل ويسجّل البصمات",
+              remote.writes == 1 and (shared / "remote-only.md").exists() and len(base) == 2,
+              approved.summary())
+
+        again = plan_sync("folder-2", shared, remote.list_folder("folder-2"), base=base)
+        check("مزامنة: الجولة الثانية لا تكرار",
+              all(action.op == "skip" for action in again.actions), again.summary())
+
+
+def loop_quantum_selection() -> None:
+    """القرار الكمومي داخل المحرك: ميزانية أضيق من الكلفة الكلية."""
+    from src.core.quota import QuotaGuard
+    from src.core.task import ToolCall
+    from src.quantum.selector import cost_of, select_under_budget
+
+    calls = [
+        ToolCall(name="read_file", args={"path": "README.md"}),
+        ToolCall(name="search_files", args={"query": "Quota"}),
+        ToolCall(name="run_command", args={"command": "pytest"}),
+    ]
+    outcome = select_under_budget(calls, budget=3)
+    spent = sum(cost_of(call.name) for call in outcome.chosen)
+    check("الكم: الاختيار يحترم الميزانية",
+          spent <= 3 and outcome.chosen and outcome.greedy is not None,
+          f"{outcome.method} | كلفة {spent:g}/3")
+
+    engine = AgentEngine(FakeRouter(), quota=QuotaGuard(max_model_calls=10, max_tool_calls=2))
+    request = TaskRequest(
+        task="اجمع سياقاً بأقل ميزانية",
+        context_tools=[ToolCall(name="run_command", args={"command": "pytest"}),
+                       ToolCall(name="read_file", args={"path": "README.md"})],
+    )
+    result = asyncio.run(engine.run(request))
+    selection = [item for item in result.evidence if item.kind == "selection"]
+    check("المحرك: قرار الاختيار يُسجَّل كدليل",
+          bool(selection) and result.tool_calls <= 2,
+          selection[0].content.splitlines()[0] if selection else "لا دليل")
+
+
 def main() -> int:
-    print("===== تحقق شامل: المعرفة + الأبحاث + الكم =====\n")
+    print("===== تحقق شامل: المعرفة + الأبحاث + الكم + المزامنة =====\n")
     loop_drive()
     print()
     loop_papers()
     print()
     loop_quantum()
+    print()
+    loop_two_way()
+    print()
+    loop_quantum_selection()
 
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     total = len(CHECKS)

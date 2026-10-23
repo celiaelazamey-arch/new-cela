@@ -53,6 +53,7 @@ class AgentEngine:
         planner_factory: Any = None,
         tool_context: ToolContext | None = None,
         knowledge: Any = None,
+        optimize_selection: bool = True,
     ) -> None:
         self.router = router
         self.registry = registry
@@ -63,6 +64,8 @@ class AgentEngine:
         self.tool_context = tool_context
         # فهرس المعرفة (اختياري): أي كائن يوفّر context_for(query) -> str
         self.knowledge = knowledge
+        # اختيار أدوات السياق تحت الميزانية (كم/جشع) — قابل للإيقاف صراحةً
+        self.optimize_selection = optimize_selection
 
     # ================= الواجهة الرئيسية =================
     async def run(self, request: TaskRequest) -> TaskResult:
@@ -84,7 +87,10 @@ class AgentEngine:
         context_block = ""
         tool_results: list[ToolResult] = []
         if request.context_tools:
-            context_block, tool_results = await self._gather_context(request.context_tools)
+            chosen_calls, selection = self._select_context_tools(request.context_tools)
+            if selection is not None:
+                evidence.append(selection)
+            context_block, tool_results = await self._gather_context(chosen_calls)
             for result in tool_results:
                 evidence.append(
                     Evidence(
@@ -217,6 +223,36 @@ class AgentEngine:
             except Exception as exc:  # noqa: BLE001 — فحص دفاعي
                 return f"تعذّر فحص النماذج المتاحة ({type(exc).__name__})."
         return ""
+
+    # ================= اختيار أدوات السياق =================
+    def _select_context_tools(self, calls: list[Any]) -> tuple[list[Any], Evidence | None]:
+        """
+        يختار أدوات السياق التي تتسع لها ميزانية النداءات المتبقية.
+
+        القرار يُسجَّل كدليل (`kind="selection"`) فيظهر للمستخدم من فاز ولماذا.
+        أي فشل هنا يعيد كل الأدوات — الاختيار تحسين لا شرط.
+        """
+        if not self.optimize_selection:
+            return list(calls), None
+
+        remaining = self.quota.remaining()["tool_calls"]
+        try:
+            from src.quantum.selector import select_under_budget
+
+            outcome = select_under_budget(calls, budget=float(remaining))
+        except Exception as exc:  # noqa: BLE001 — التحسين لا يُسقط المهمة
+            logger.warning("تعذّر اختيار الأدوات (%s) — تُنفَّذ كلها.", type(exc).__name__)
+            return list(calls), None
+
+        if outcome.method in {"all", "none"}:
+            return list(calls), None
+
+        return outcome.chosen, Evidence(
+            kind="selection",
+            ref="quantum-selector",
+            content=outcome.render(),
+            ok=True,
+        )
 
     # ================= أدوات السياق =================
     async def _gather_context(
