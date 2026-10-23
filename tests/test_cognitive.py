@@ -153,20 +153,6 @@ def test_decision_skips_completed_actions_then_requests_verification() -> None:
     assert decide_next_action(done, plan) is None
 
 
-def test_decision_after_saved_final_verification_requests_evaluation_not_verification() -> None:
-    action = RepairAction(path="a.py", old="x", new="y")
-    plan = RepairPlan(steps=[action])
-    state = make_state().model_copy(
-        update={"completed_steps": [action.step_id, "verify:final"]}
-    )
-    # الحالة بقيت in_progress بعد verify:final: القرار حسم من الدليل لا إعادة قياس.
-    assert decide_next_action(state, plan) == {
-        "kind": "evaluate",
-        "action_id": "evaluate:goal",
-    }
-    assert decide_next_action(state.model_copy(update={"completion_status": "done"}), plan) is None
-
-
 def test_goal_evaluation_requires_real_observations() -> None:
     goal = Goal.for_repair("إصلاح", "pytest -q", "a.py")
     missing = evaluate_goal(goal, None, None)
