@@ -1,0 +1,41 @@
+name: Quality Gate
+
+# فحص آلي للجودة والاستقرار عند كل دفع أو Pull Request:
+# فحص نحوي (compileall) + تدقيق أسلوبي (ruff) + اختبارات (pytest).
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax Check (compileall)
+        run: python -m compileall -q src tests
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        run: pytest -q
