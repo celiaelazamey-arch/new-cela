@@ -15,6 +15,9 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from src.cognitive.state import CognitiveState
+from src.core.evidence import Evidence
+
 
 class TaskStatus(str, Enum):
     """حالة المهمة كما تُعرَض للمستخدم — صادقة ولا تجمّل."""
@@ -33,19 +36,6 @@ class ToolCall(BaseModel):
     purpose: str = ""
 
 
-class Evidence(BaseModel):
-    """
-    دليل واحد على عمل تم — أساس التحقق.
-
-    `kind`: tool | step | model | artifact
-    """
-
-    kind: str
-    ref: str = ""
-    content: str = ""
-    ok: bool = True
-
-
 class AcceptanceCheck(BaseModel):
     """شرط نجاح واحد — قابل للعرض والتفسير (لا درجة غامضة)."""
 
@@ -59,6 +49,11 @@ class TaskRequest(BaseModel):
     """ما يطلبه المستخدم — مع سياسة تحقق صريحة قابلة للتعديل."""
 
     task: str = Field(..., min_length=1, description="المهمة بالعربية الطبيعية")
+    run_id: str = Field(
+        default="",
+        pattern=r"^$|^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        description="معرّف اختياري آمن لربط الحالة وسجل الأدلة",
+    )
     context_tools: list[ToolCall] = Field(
         default_factory=list, description="أدوات تُنفَّذ قبل التخطيط لجمع السياق"
     )
@@ -89,6 +84,11 @@ class TaskResult(BaseModel):
     # منظور الوعي الوظيفي: ثقة مُعايَرة + تقرير ذاتي موجز
     confidence: float = 0.0
     awareness: str = ""
+    # حالة هندسية مشتقة من النتيجة؛ لا تغيّر verified ولا تمنح نجاحاً بنفسها.
+    cognitive: CognitiveState | None = None
+    cognitive_report: str = ""
+    evidence_head: str = ""
+    checkpoint_id: str = ""
 
     @property
     def failed_checks(self) -> list[AcceptanceCheck]:

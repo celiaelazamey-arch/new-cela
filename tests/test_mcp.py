@@ -444,7 +444,7 @@ def test_start_mcp_servers_requires_explicit_yes(tmp_path: Path) -> None:
 
     assert clients == []
     assert "mcp__fake__echo" not in registry
-    assert len(registry) == 4  # الأدوات المدمجة فقط
+    assert len(registry) == 5  # الأدوات المدمجة فقط، وبينها replace_text الجديدة
 
 
 def test_start_mcp_servers_registers_tools_when_approved(tmp_path: Path) -> None:

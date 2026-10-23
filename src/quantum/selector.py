@@ -28,6 +28,7 @@ TOOL_COST_ESTIMATE: dict[str, float] = {
     "list_files": 2.0,
     "run_command": 3.0,    # تنفيذ + موافقة + مهلة
     "write_file": 2.0,
+    "replace_text": 2.0,   # كتابة مشروطة بالبصمة + موافقة
 }
 DEFAULT_TOOL_COST = 1.0
 

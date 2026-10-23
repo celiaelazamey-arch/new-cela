@@ -15,8 +15,14 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from typing import Any
 
+from src.cognitive.goals import Goal
+from src.cognitive.loop import evaluate_goal
+from src.cognitive.report import render_cognitive_report
+from src.cognitive.state import CognitiveState, Transition, apply_transition
+from src.cognitive.store import CheckpointStore, EvidenceStore
 from src.core.memory import MemoryRetriever, MemoryStore
 from src.core.model_api import NoEligibleModel
 from src.core.planner import Planner
@@ -57,6 +63,10 @@ class AgentEngine:
         knowledge: Any = None,
         optimize_selection: bool = True,
         awareness: bool = True,
+        cognitive: bool = True,
+        cognitive_store: EvidenceStore | None = None,
+        checkpoint_store: CheckpointStore | None = None,
+        self_model: Any = None,
     ) -> None:
         self.router = router
         self.registry = registry
@@ -73,9 +83,25 @@ class AgentEngine:
         self.awareness = awareness
         # حالة الانتباه السابقة — يُستخدم نموذجها لضبط العتبة التالية
         self._attention_threshold = 0.05
+        # الحالة الإدراكية سجل مشتق؛ لا تستطيع تغيير حكم التحقق في المحرك.
+        self.cognitive = cognitive
+        self.cognitive_store = cognitive_store
+        self.checkpoint_store = checkpoint_store
+        self.self_model = self_model
 
     # ================= الواجهة الرئيسية =================
     async def run(self, request: TaskRequest) -> TaskResult:
+        """يشغّل المحرك ثم يشتق الحالة والتقرير من نتيجته وأدلته الفعلية."""
+        state: CognitiveState | None = None
+        store: EvidenceStore | None = None
+        if self.cognitive:
+            state, store = self._start_cognitive(request)
+        result = await self._run(request)
+        if state is None or store is None:
+            return result
+        return self._finish_cognitive(result, state, store)
+
+    async def _run(self, request: TaskRequest) -> TaskResult:
         """ينفّذ الدورة كاملة ويعيد نتيجة موثّقة — لا يرفع استثناءات التنفيذ."""
         evidence: list[Evidence] = []
         checks: list[AcceptanceCheck] = []
@@ -221,6 +247,88 @@ class AgentEngine:
             model_calls=self.quota.usage.model_calls,
             confidence=confidence,
             awareness=awareness_text,
+        )
+
+    # ================= الحالة الإدراكية المشتقة =================
+    def _start_cognitive(self, request: TaskRequest) -> tuple[CognitiveState, EvidenceStore]:
+        from src.awareness.self_model import default_self_model
+
+        goal = Goal.for_engine(request.task)
+        model = self.self_model or default_self_model()
+        state = CognitiveState(
+            task=request.task,
+            run_id=request.run_id or "run-" + uuid.uuid4().hex[:16],
+            active_goal=goal.id,
+            goal=goal,
+            capabilities=[capability.name for capability in model.verified],
+            verification_plan=["engine:all-required-checks"],
+        )
+        store = self.cognitive_store or EvidenceStore()
+        store.append_transition(Transition.between(None, state, stage="init"))
+        if self.checkpoint_store is not None:
+            self.checkpoint_store.save(state, store.head_hash)
+        return state, store
+
+    def _finish_cognitive(
+        self,
+        result: TaskResult,
+        state: CognitiveState,
+        store: EvidenceStore,
+    ) -> TaskResult:
+        """يختم الأدلة والانتقال النهائي؛ verified يبقى من `_verify` وحده."""
+        status_by_task = {
+            TaskStatus.COMPLETED: "done",
+            TaskStatus.UNVERIFIED: "failed",
+            TaskStatus.BLOCKED: "blocked",
+            TaskStatus.FAILED: "failed",
+        }
+        completion = status_by_task[result.status]
+        goal = state.goal or Goal.for_engine(state.task)
+        goal = goal.with_status(completion)
+        evidence = [item.sealed() for item in result.evidence]
+        for item in evidence:
+            store.append_evidence(item)
+        uncertainty = [
+            f"{check.name}: {check.detail or 'لم يُستوفَ'}"
+            for check in result.failed_checks
+        ]
+        if result.blocked_reason:
+            uncertainty.append(result.blocked_reason)
+        if result.error:
+            uncertainty.append(result.error)
+        updated, transition = apply_transition(
+            state,
+            stage="complete",
+            updates={
+                "goal": goal,
+                "evidence": evidence,
+                "completion_status": completion,
+                "confidence": result.confidence,
+                "uncertainty": uncertainty,
+                "next_action": None,
+                "approval_required": False,
+            },
+            reason="اشتقاق الحالة من TaskResult وشروطها، لا من نص الإجابة",
+        )
+        store.append_transition(transition)
+        checkpoint_id = ""
+        if self.checkpoint_store is not None:
+            checkpoint = self.checkpoint_store.save(updated, store.head_hash)
+            checkpoint_id = checkpoint.checkpoint_id
+        criteria = evaluate_goal(goal, None, None, engine_verified=result.verified)
+        report = render_cognitive_report(
+            updated,
+            goal=goal,
+            criteria=criteria,
+            event_head=store.head_hash,
+        )
+        return result.model_copy(
+            update={
+                "cognitive": updated,
+                "cognitive_report": report,
+                "evidence_head": store.head_hash,
+                "checkpoint_id": checkpoint_id,
+            }
         )
 
     # ================= منظور الوعي =================
