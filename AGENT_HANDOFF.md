@@ -210,6 +210,7 @@ gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
   - نُفِّذ `gh pr merge 7 --merge` ⇒ exit 0، ثم **تُحقَّق من النتيجة بالـ API** لا بالافتراض: `state=MERGED`، merge commit `c2239de`، والملفات الحاكمة موجودة على `main`.
   - ✅ **CI على `main` بعد الدمج:** Quality Gate `40051514987` — **19 خطوة نجحت**؛ Security Scan `40051514962` — CodeQL (python + actions) نجح. تحديث Dependency Graph (`40051520089`) يعمل تلقائياً من GitHub على `main`.
   - 🐛 خطأ صغير أثناء التحقق: استعلام `gh pr view --json merged` فشل (`Unknown JSON field`) لأن الحقل الصحيح هو `state`+`mergedAt` — صُحِّح وأُعيد الاستعلام. لا تأثير على الدمج نفسه.
+  - **🔁 فجوة اكتُشفت بعد الدمج ثم عولجت:** تسجيل الدمج في `AGENT_HANDOFF.md` وحده (`d8a8793`) **لم يُشغّل CI** لأن `paths` filters في `quality-gate.yml` كانت تستبعد تغييرات `.md`. كُشف بالسؤال «هل فيه run بعد آخر دفع؟» فظهر لا. **✅ الإصلاح:** أُضيفت `AGENT_HANDOFF.md` · `CLAUDE.md` · `docs/**` · `scripts/**` إلى `paths` ⇒ الملفات الحاكمة تُفحص دائماً. **تأكيد بالتشغيل:** الدفع `1b3e3d8` شغّل CI جديد `40051729963` ونجح **19 خطوة** (لم يُكتفَ بادعاء أن run قديماً نجح). الدرس: `paths` filters لتوفير الدقائق قد تُعمّي تغييرات حاكمة — لا تُستثنَ أبداً.
 
 ---
 
