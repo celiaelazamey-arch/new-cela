@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import io
 import socket
 import struct
 import zipfile
@@ -650,3 +651,97 @@ def test_worker_result_schema_rejects_invalid_status_and_size() -> None:
     payload["size"] = True
     with pytest.raises(ValueError, match="invalid size"):
         IngestionResult.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    ("untrusted", "must_not_appear"),
+    [
+        ('<a href="/\\\\evil.example">link</a>', "/\\\\evil.example"),
+        ('<svg src="https://evil.example/a.svg"/>', "https://evil.example"),
+        ('</div></div><a>unclosed', "</div>"),
+        ('<svg><script>alert(1)</script><text>safe</text></svg>', "alert(1)"),
+    ],
+    ids=["backslash-network-path", "external-resource-src", "unbalanced-tags", "script-subtree"],
+)
+def test_sanitizer_rejects_uri_and_markup_attacks(untrusted: str, must_not_appear: str) -> None:
+    sanitized, _warnings = sanitize_svg_or_html(untrusted)
+    assert must_not_appear not in sanitized
+
+
+@pytest.mark.parametrize(
+    ("markup", "canonical"),
+    [
+        ('<svg viewbox="0 0 1 1"></svg>', "viewBox="),
+        ('<lineargradient><stop/></lineargradient>', "<linearGradient>"),
+        ('<svg id="root"></svg>', 'id="cela-root"'),
+    ],
+    ids=["viewbox-case", "svg-tag-case", "dom-clobber-id-prefix"],
+)
+def test_sanitizer_preserves_canonical_svg_and_prefixes_ids(markup: str, canonical: str) -> None:
+    sanitized, _warnings = sanitize_svg_or_html(markup)
+    assert canonical in sanitized
+
+
+@pytest.mark.parametrize(
+    ("attack", "expected_error"),
+    [("duplicate_name", "archive_duplicate_entry"), ("encrypted_flag", "zip_encrypted_entry")],
+    ids=["duplicate-normalized-name", "encrypted-entry"],
+)
+def test_zip_safety_rejects_duplicate_and_encrypted_entries(attack: str, expected_error: str) -> None:
+    from src.ingestion.pipeline import _check_zip_safety
+
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("sample.txt", "one")
+        if attack == "duplicate_name":
+            archive.writestr("sample.txt", "two")
+    raw = bytearray(stream.getvalue())
+    if attack == "encrypted_flag":
+        local_header = raw.index(b"PK\x03\x04")
+        raw[local_header + 6] |= 1
+        central_header = raw.index(b"PK\x01\x02")
+        raw[central_header + 8] |= 1
+    with (
+        zipfile.ZipFile(io.BytesIO(raw)) as archive,
+        pytest.raises(ValueError, match=expected_error),
+    ):
+        _check_zip_safety(archive, IngestionLimits(), verify_streams=False)
+
+
+@pytest.mark.parametrize("worker_exit", [-9, -11, -6, 1], ids=["sigkill", "segfault", "abort", "exception"])
+def test_isolated_worker_crashes_fail_closed_and_has_no_pipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, worker_exit: int
+) -> None:
+    import subprocess
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "source.txt"
+    source.write_text("fixture", encoding="utf-8")
+
+    class ExitedWorker:
+        pid = 12345
+        returncode = worker_exit
+
+        def wait(self, timeout: float | None = None) -> int:
+            return worker_exit
+
+        def poll(self) -> int:
+            return worker_exit
+
+    def fake_popen(*_args: object, **kwargs: object) -> ExitedWorker:
+        assert kwargs["stdout"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.DEVNULL
+        return ExitedWorker()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", fake_popen)
+    result = ingest_file_isolated(source, allowed_root=tmp_path)
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "parser_subprocess_failed"
+
+
+def test_ingestion_requires_explicit_allowed_root(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("fixture", encoding="utf-8")
+    with pytest.raises(ValueError, match="allowed_root_required"):
+        ingest_file(source)

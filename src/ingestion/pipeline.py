@@ -1143,7 +1143,7 @@ def _safe_read_zip_entry(
         zlib.decompressobj(-15) if info.compress_type == zipfile.ZIP_DEFLATED else None
     )
 
-    chunks: list[bytes] = []
+    output = io.BytesIO()
     entry_read = 0
     first_chunk = True
     crc = 0
@@ -1171,7 +1171,7 @@ def _safe_read_zip_entry(
                 f"zip_bomb_size_exceeded: الحجم الفعلي بعد الفك ({cumulative_bytes[0]}) يتجاوز الحد المسموح ({limits.max_uncompressed_bytes})"
             )
         crc = zlib.crc32(data, crc)
-        chunks.append(data)
+        output.write(data)
 
     while remaining_comp > 0:
         read_len = min(CHUNK_SIZE_BYTES, remaining_comp)
@@ -1198,7 +1198,7 @@ def _safe_read_zip_entry(
     if (crc & 0xFFFFFFFF) != (info.CRC & 0xFFFFFFFF):
         raise zipfile.BadZipFile("archive_entry_crc_mismatch")
 
-    return b"".join(chunks)
+    return output.getvalue()
 
 
 def _check_zip_safety(
@@ -1645,8 +1645,10 @@ def ingest_file_isolated(
 ) -> IngestionResult:
     """Run ingestion in an isolated worker; worker input and JSON output are staged locally."""
     active_limits = limits or IngestionLimits()
+    if allowed_root is None:
+        raise ValueError("allowed_root_required: explicit user-selected root is required")
     raw_path = Path(file_path)
-    root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
+    root = Path(allowed_root).resolve()
     safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
     clean_name = sanitize_filename(safe_path.name)
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
@@ -1748,8 +1750,10 @@ def ingest_file(
             limits=active_limits,
         )
 
+    if allowed_root is None:
+        raise ValueError("allowed_root_required: explicit user-selected root is required")
     raw_path = Path(file_path)
-    root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
+    root = Path(allowed_root).resolve()
     safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
     clean_name = sanitize_filename(safe_path.name)
 
@@ -2258,8 +2262,10 @@ class IngestionPipeline:
         يعالج الملف ويعيد `(IngestionResult, from_cache)`.
         """
         self.purge_expired_cache()
+        if allowed_root is None:
+            raise ValueError("allowed_root_required: explicit user-selected root is required")
         raw_path = Path(file_path)
-        root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
+        root = Path(allowed_root).resolve()
         safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
         file_id, _, _ = _stream_sha256_and_head(safe_path)
         cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
