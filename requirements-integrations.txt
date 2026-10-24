@@ -3,4 +3,4 @@
 # التثبيت: pip install -r requirements-integrations.txt
 google-api-python-client>=2.100,<3
 google-auth>=2.20,<3
-google-auth-oauthlib>=1.0,<2
+google-auth-oauthlib>=1.5.0,<2
