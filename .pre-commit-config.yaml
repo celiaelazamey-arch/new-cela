@@ -1,0 +1,64 @@
+# بوابات محلية قبل كل commit — تحوّل «الطلبات» إلى «سياسات» (البند 11).
+#
+# التثبيت (مرة واحدة، مجاني):
+#   pip install pre-commit
+#   pre-commit install
+#
+# التشغيل اليدوي على كل الملفات:
+#   pre-commit run --all-files
+#
+# ملاحظة: هذه طبقة أولى سريعة؛ بوابة CI في quality-gate.yml هي الفيصل النهائي.
+# ملاحظة للمفسّر: الفواحص كلها dependency-free (المكتبة القياسية فقط)،
+# فلا حاجة لبيئة افتراضية معزولة لتشغيلها.
+
+repos:
+  - repo: local
+    hooks:
+      - id: error-guard
+        name: Error Guard — منع إخفاء الأخطاء (Pattern 1)
+        entry: python scripts/error_guard.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: policy-guard
+        name: Policy Guard — منع تعطيل الحماية (Patterns 3+9)
+        entry: python scripts/policy_guard.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: spec-check
+        name: Spec Check — منع Logic Drift (Pattern 4)
+        entry: python scripts/spec_check.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: secret-scan
+        name: Secret Scan — منع تسريب المفاتيح
+        entry: python scripts/secret_scan.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pii-scan
+        name: PII Scan — منع البيانات الشخصية (قانون 151/2020)
+        entry: python scripts/pii_scan.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: dependency-guard
+        name: Dependency Guard — منع الحزم غير المعلنة
+        entry: python scripts/dependency_guard.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff
+        name: Ruff — جودة الأسلوب
+        entry: ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true

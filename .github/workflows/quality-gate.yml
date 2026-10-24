@@ -63,6 +63,19 @@ jobs:
       - name: Dependency Guard
         run: python scripts/dependency_guard.py --require-installed
 
+      # ---- أنماط فشل وكلاء الترميز (docs/agent-failure-patterns.md) ----
+      # البند 1: منع كتم الأخطاء. البند 2: الاختبارات تتحقق من النتيجة.
+      - name: Error Guard (no silent swallowing)
+        run: python scripts/error_guard.py
+
+      # البندان 3 و9: منع تعطيل الحماية / منح صلاحيات واسعة.
+      - name: Policy Guard (security red lines)
+        run: python scripts/policy_guard.py
+
+      # البندان 4 و12: مقارنة الكود بالمواصفة + وجود المراجع.
+      - name: Spec Check (logic drift)
+        run: python scripts/spec_check.py
+
       # تدقيق أمني **صارم** على التثبيت الافتراضي الآمن.
       # بعد فكّ ارتباط browser-use صار التثبيت الأساسي بلا ثغرات معروفة؛
       # لذلك نُفشل البناء لو ظهرت ثغرة في المتطلبات الأساسية (حماية من Regression).

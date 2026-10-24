@@ -1,6 +1,6 @@
 # new-cela — نظام وكلاء ذكي مستقل (Autonomous AI Agent System)
 
-> 🤝 **للوكلاء والجلسات الجديدة:** ابدأ من [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — سجل الاستئناف الذي يحفظ القواعد والحالة وبروتوكول الدفع بين الجلسات.
+> 🤝 **للوكلاء والجلسات الجديدة:** ابدأ من **[`CLAUDE.md`](CLAUDE.md)** — قواعد المشروع الملزمة والمعمارية المرجعية — ثم [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) لسجل الحالة والتاريخ. القواعد مفروضة آلياً عبر `.pre-commit-config.yaml` وبوابة CI.
 
 بنية تحتية مجانية 100% لبناء وكيل ذكاء اصطناعي مستقل يجمع بين:
 
@@ -65,6 +65,8 @@ new-cela/
 ├── requirements-integrations.txt  # Google Drive — اختياري
 ├── requirements-ocr.txt           # PDF/صور — اختياري
 ├── requirements-quantum.txt       # محاكي الكم — اختياري
+├── CLAUDE.md                      # قواعد المشروع الملزمة (اقرأه أولاً)
+├── .pre-commit-config.yaml       # بوابات محلية قبل كل commit
 ├── SECURITY.md                    # السياسة الأمنية
 ├── AGENT_HANDOFF.md               # سجل الاستئناف بين الجلسات
 └── README.md

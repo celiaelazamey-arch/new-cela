@@ -127,15 +127,17 @@ class StdioMcpClient:
         if proc.stdin and not proc.stdin.closed:
             try:
                 proc.stdin.close()
-            except OSError:
-                pass
+            except OSError as exc:  # مقصود — العملية قد تكون أغلقت stdin بالفعل
+                logger.debug("تعذّر إغلاق stdin لخادم MCP: %s", type(exc).__name__)
         try:
             proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired:  # مقصود — تصعيد الإنهاء عند رفض الخروج
+            logger.warning("خادم MCP لم يستجب للإنهاء — إرسال terminate.")
             proc.terminate()
             try:
                 proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired:  # مقصود — قتل نهائي بعد استنفاد المهلة
+                logger.error("خادم MCP رفض الإنهاء بعد terminate — قتل العملية.")
                 proc.kill()
                 proc.wait(timeout=2)
         logger.info("أُغلق خادم MCP: %s", self.name)
