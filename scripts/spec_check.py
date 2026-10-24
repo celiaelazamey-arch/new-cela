@@ -96,6 +96,17 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "calculate_unit_economics": "func",
         "render_pricing_table": "func",
     },
+    "src/core/niche_strategy.py": {
+        "VerticalNiche": "class",
+        "NicheWorkflowSpec": "class",
+        "NinetyDayDecision": "class",
+        "NinetyDayEvaluation": "class",
+        "NICHE_CATALOG": "const",
+        "get_niche_spec": "func",
+        "validate_positioning_claim": "func",
+        "evaluate_90_day_gate": "func",
+        "render_niche_playbook": "func",
+    },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
     "scripts/pii_scan.py": {"main": "func"},
@@ -117,6 +128,7 @@ REQUIRED_DOCS = (
     "docs/functional-awareness-qa.md",
     "docs/monetization-plan.md",
     "docs/devsecops-free-tools.md",
+    "docs/niche-strategy-manus.md",
 )
 
 # بنود المواصفة الأصلية (من الطلبات الأولى) — تُذكَّر في التقرير لمنع النسيان.

@@ -24,8 +24,8 @@
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| البرانش الإلزامي | **برانش الجلسة الحالية** (`git branch --show-current`) — حالياً `arena/eef426e3-new-cela` |
-| نقطة الأساس الحالية | `6d5f9ae160a2175e4a8a158ca012a78774833814` (من `main` = دمج PR #8) + دمج `372ae40` (PR #9) |
+| البرانش الإلزامي | **برانش الجلسة الحالية** (`git branch --show-current`) — حالياً `arena/3c154eae-new-cela` |
+| نقطة الأساس الحالية | `3e9c2d66690ef40479238ac6113c50875782ec8c` (من `main` = دمج PR #10 وPR #9) |
 | الـ remote | `https://github.com/celiaelazamey-arch/new-cela.git` |
 | بوابات الدفع المسموحة | `origin <برانش الجلسة>` فقط |
 
@@ -40,8 +40,9 @@
 > | 4 | `arena/60762df1-new-cela` | — | دُمج PR #5 ثم أُلغي بـ PR #6 |
 > | 5 | `arena/1756fb0e-new-cela` | `9dc094e` | دُمج PR #7 (المهام 1–9) |
 > | 6 | `arena/f26ae208-new-cela` | `c2239de` | دُمج PR #8 (`6d5f9ae` — إغلاق 4 تنبيهات CodeQL) |
-> | 7 | `arena/9131baa0-new-cela` | `c2239de` | PR #9 (الوعي الوظيفي + خطة الإكمال) — حُلَّ تعارضه مع PR #8 ودُمج هنا |
-> | 8 (الحالية) | `arena/eef426e3-new-cela` | `6d5f9ae` | نشطة (توحيد PR #8 + PR #9 + المهمة 12 خطة الربح والتسعير) |
+> | 7 | `arena/9131baa0-new-cela` | `c2239de` | دُمج PR #9 تلقائياً ضمن PR #10 (`3e9c2d6`) |
+> | 8 | `arena/eef426e3-new-cela` | `6d5f9ae` | دُمج PR #10 (`3e9c2d6` — المهام 11-ب و12 و13) |
+> | 9 (الحالية) | `arena/3c154eae-new-cela` | `3e9c2d6` | نشطة (المهمة 14: استراتيجية النيش العمودي ومقياس الـ 90 يوماً) |
 
 ---
 
@@ -106,12 +107,14 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 11-أ | **إغلاق تنبيهات CodeQL الأربعة** على `main` (3 High + 1 Medium) + **دمج PR #8** | ✅ **مُنفّذة ومُدمجة في `main`** | حاجز `path_guard.py` · **449 pytest ✅** · فحوص PR #8 خضراء · دمج `6d5f9ae` | `6d5f9ae` |
 | 11-ب | دفعة **الوعي الوظيفي** (12 س/ج: تقادم نموذج الذات · drift · معايرة · L0–L3 + kill switch · مقاييس · محكّم · 29 اختبار حقن) + خطة الإكمال | ✅ **منفّذة ومُدمجة بلا تعارض** (حُلَّ تعارض PR #9 مع PR #8) | 7 فواحص ✅ · ruff ✅ · `docs/functional-awareness-qa.md` · `docs/completion-plan.md` · CI ✅ `40072241022` | `5811b5e` + `372ae40` |
 | 12 | **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`** + **حل تعارض PR #9** | ✅ **مقبولة** (أكدتها لقطة شاشة PR #10 الأخضر بالكامل) | `docs/monetization-plan.md` · `src/core/pricing.py` · `--plans`/`--plan` · توحيد PR #8 + PR #9 + المهمة 12 · **488 pytest ✅** · PR #10 `CLEAN` ✅ | `aeb9427` + `7660215` |
-| 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · كل الحواجز وCI ✅ | `ddda822` |
+| 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مقبولة ومُدمجة في `main`** (PR #10 `3e9c2d6`) | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · دمج PR #10 ✅ | `ddda822` + `3e9c2d6` |
+| 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** · كل الحواجز وCI ✅ | هذا الـ commit |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 13 — التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + إضافة `dependabot.yml` و`CODEOWNERS` وحارس حقن التوجيه `src/core/prompt_guard.py`.
-- **الفرع الحالي:** `arena/eef426e3-new-cela` (مرتبط بـ **PR #10** المفتوح والجاهز للدمج `CLEAN / MERGEABLE` إلى `main`).
-- 🛡️ **مرجع أدوات DevSecOps المجانية (2026) الجديد:** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
+- **المهمة النشطة:** رقم 14 — استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + بوابة القرار بعد 90 يوماً (`evaluate_90_day_gate`).
+- **الفرع الحالي:** `arena/3c154eae-new-cela` (متفرّع من `main` @ `3e9c2d6` بعد دمج PR #10 وPR #9).
+- 🎯 **مرجع استراتيجية النيش العمودي الجديد:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
+- 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
 - 📋 **خطة إكمال البنود الناقصة** (من PR #9): [`docs/completion-plan.md`](docs/completion-plan.md) — 15 فجوة مجرودة من الكود، 4 مراحل.
 - **مرجع الوعي الوظيفي الجديد:** [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) — الـ12 سؤالاً مُقيَّمة قبل/بعد بأدلة ملف:سطر.
 - ⚠️ **خط أحمر جديد يحرسه `policy_guard`:** الاستقلالية الافتراضية `L1` وشرط kill switch لـ L3.
@@ -163,6 +166,17 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 14: **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً**:
+  - **✅ دمج PR #10 (وPR #9 تلقائياً) في `main` (`3e9c2d6`):** بناءً على طلب المستخدم `Please merge the pull request`، نُفِّذ `gh pr merge 10 --merge` بنجاح وأصبح `main` يضم المهام 1–13 كاملةً بلا أي طلب سحب معلّق.
+  - **✅ التحقق المصدري الحي لوضع Manus AI حتى أكتوبر 2026:**
+    1. تأكيد تجاوز Manus حاجز **$100M ARR** ($125M run rate) خلال 8 أشهر في ديسمبر 2025، وإعلان صفقة استحواذ Meta بـ **~$2B–$3B** في 29 ديسمبر 2025، وتسعير $39–$199/شهر.
+    2. **تحديث جيو-تنظيمي جوهري في 2026:** في **27 أبريل 2026** أوقفت اللجنة الوطنية للتنمية والإصلاح الصينية (NDRC) صفقة استحواذ Meta على Manus بموجب ضوابط تصدير التكنولوجيا السيادية وأمرت بفك الارتباط؛ وفي يونيو–أغسطس 2026 عادت Manus شركة مستقلة بعد قفز إيراداتها إلى **$400M–$500M ARR**، ثم جمعت في **8 أكتوبر 2026 تمويلاً جديداً يفوق $500M** بقيادة Boyu Capital وIDG Capital لتقييم يستهدف ~$4B. هذا التطور يعزّز الحكم الاستراتيجي مرتين: (أ) استحالة منافسة منصة عامة تملك $500M+ سيولة، و(ب) إثبات أن **سيادة البيانات والامتثال المحلي (قانون مصر 151/2020) واللغة العربية والدفع المحلي** هي الخندق الدفاعي الحقيقي.
+  - **✅ المرجع الدائم [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md):** توثيق البنود السبعة وربطها بمعمارية `new-cela`.
+  - **✅ الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + `tests/test_niche_strategy.py` + خيار CLI `--niches`:**
+    1. كتالوج النيشات العمودية الأربعة (`NICHE_CATALOG`: `print_prepress` للمطابع وفصل الألوان، `accounting_compliance` لمكاتب المحاسبة والامتثال، `arabic_ecommerce` للمتاجر العربية، `devsecops_arabic` لفرق البرمجة العربية) مع وسائل الدفع المحلية (`InstaPay`, `Fawry`, `Paymob`, `Vodafone Cash`).
+    2. حارس التموضع التسويقي (`validate_positioning_claim`): يمنع آلياً عبارات «بديل Manus» و«وكيل يفعل أي شيء» و«بلا حدود».
+    3. بوابة القرار بعد 90 يوماً (`evaluate_90_day_gate`): تفحص الشروط الثلاثة (`paying_customers >= 10`، `task_success_rate >= 0.85`، `margin_per_user_egp > 0`) وتُصدر القرار الآلي (`EXPAND` | `PIVOT_NICHE_KEEP_TOOLS` | `FIX_WORKFLOW_RELIABILITY` | `FIX_UNIT_ECONOMICS`).
+  - **✅ التحقق:** **497 pytest ✅** (تغطية شاملة **86.78%**) · **62 عقداً معمارياً** و**12 مرجعاً إلزامياً** في `spec_check.py` · كل الحواجز الـ 7 خضراء.
 - **2026-10-24** — المهمة 13: **التحقق من حدود الطبقة المجانية لعام 2026 لأدوات الجودة والأمان والاختبار والنشر والـ AI (14 فئة) + تنفيذ الإضافات ذات الأثر الأعلى وبزمن إضافي 0 ثانية على الـ Pipeline**:
   - **✅ تحقق ويب فعلي لعام 2026 (7 تصحيحات جوهرية عن المعرفة العامة القديمة):**
     1. **Fly.io:** أُلغيت الطبقة المجانية تماماً للحسابات الجديدة منذ أكتوبر 2024 (تجربة 7 أيام/ساعتين فقط ثم فوترة فورية، ورُفع سعر الذاكرة في **1 أكتوبر 2026** إلى $6/GB/شهر).
