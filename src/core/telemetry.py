@@ -23,6 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from src.core.path_guard import UnsafePath, guard_path, guard_run_id, sanitize_for_log
 from src.core.schemas import (
     MemoryHitView,
     RunReport,
@@ -118,7 +119,9 @@ class RunSession:
             status=RunStatus.RUNNING,
             started_at=_now_iso(),
         )
-        self.path = archive.path / f"{self.report.id}.json"
+        # ✅ defense-in-depth: الـ id مولَّد داخلياً، لكن نتحقق منه قبل بناء المسار.
+        safe_id = guard_run_id(self.report.id)
+        self.path = archive.path / f"{safe_id}.json"
         self._flush()
 
     # ---------------- التحديثات ----------------
@@ -200,7 +203,13 @@ class RunArchive:
     """
 
     def __init__(self, path: str | os.PathLike[str] | None = DEFAULT_RUNS_DIR, keep: int = 50) -> None:
-        self.path = Path(path or DEFAULT_RUNS_DIR)
+        # ✅ حاجز الأمان: المسار قد يأتي من st.text_input (مصدر غير موثوق).
+        # يُطهَّر هنا قبل أي glob / load — يعالج تنبيه CodeQL #3.
+        try:
+            self.path = guard_path(path or DEFAULT_RUNS_DIR)
+        except UnsafePath as exc:
+            logger.warning("مسار سجل تشغيلات مرفوض: %s", sanitize_for_log(exc))
+            raise
         self.keep = max(1, int(keep))
 
     # ---------------- الكتابة ----------------
@@ -219,7 +228,10 @@ class RunArchive:
     # ---------------- القراءة ----------------
     def load(self, run_id: str) -> RunReport | None:
         """يقرأ تقريراً واحداً بالمعرِّف — None إذا كان مفقوداً أو تالفاً."""
-        candidate = self.path / f"{run_id}.json"
+        # ✅ نفس نمط cognitive/store.py::_validate_run_id — يمنع حقن المسار
+        # عبر run_id قبل بناء `self.path / f"{run_id}.json"`.
+        safe_id = guard_run_id(run_id)
+        candidate = self.path / f"{safe_id}.json"
         if not candidate.exists():
             return None
         return _read_report(candidate)
@@ -255,5 +267,7 @@ def _read_report(file: Path) -> RunReport | None:
     try:
         return RunReport.model_validate(json.loads(file.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError) as exc:
-        logger.warning("تخطّي تقرير تشغيل غير صالح %s (%s).", file.name, type(exc).__name__)
+        # ✅ تنقيح اسم الملف قبل السجل — يمنع Log Injection عبر اسم ملف خبيث.
+        logger.warning("تخطّي تقرير تشغيل غير صالح %s (%s).",
+                       sanitize_for_log(file.name), type(exc).__name__)
         return None

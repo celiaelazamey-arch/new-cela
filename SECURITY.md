@@ -116,7 +116,59 @@ pip-audit -r requirements.txt -r requirements-browser.txt
 
 ---
 
-## 5. ما لا يُرفع أبداً
+## 5. تنبيهات CodeQL على `main` — ✅ مُعالَجة (2026-10-24)
+
+> **السياق:** بعد دمج PR #7، رصد CodeQL 4 تنبيهات على `main`. واجهة API
+> للجلسة تُرجع `403` عند قراءة التنبيهات، لكن **المستخدم زوّدها يدوياً** من
+> واجهة GitHub ⇒ صارت قابلة للتنفيذ. عولجت على الفرع `arena/f26ae208-new-cela`.
+
+| # | الخطورة | الموضع | النوع | الحل |
+|---|---|---|---|---|
+| 1 | High | `src/core/memory.py:472` | Uncontrolled data in path expression | حاجز مركزي عند الإنشاء |
+| 2 | High | `src/core/memory.py:476` | Uncontrolled data in path expression | نفس الحاجز |
+| 3 | High | `src/core/telemetry.py:232` | Uncontrolled data in path expression | نفس الحاجز + `guard_run_id` |
+| 4 | Medium | `src/core/memory.py:508` | Log Injection | `sanitize_for_log` |
+
+### سلسلة التدفق (Taint)
+
+```
+st.text_input (dashboard/app.py:247-248)   ← مصدر غير موثوق
+   ↓
+data.load_runs / data.open_memory
+   ↓
+RunArchive(path) · MemoryStore(path)
+   ↓
+.exists() · .read_text() · .glob() · logger.info(...)   ← المصارف
+```
+
+### الحل المعماري: `src/core/path_guard.py`
+
+بدل ترقيع كل مصرف، **تُطهَّر المسارات عند نقطة الدخول** (constructor) —
+وهو نفس النمط الذي نجح في `cognitive/store.py::_validate_run_id` (CodeQL لم
+يرصد تنبيهاً عليه رغم بناء مسار من معرّف). طبقات الدفاع:
+
+1. رفض `..` (traversal) · `\x00` (NUL) · الطول المفرط (>4096) · الفراغ.
+2. رفض المسارات المطلقة نحو مناطق حساسة (`/etc`, `/proc`, `/sys`, `/dev`...).
+3. `must_stay_under_root` اختياري لحصر المسار داخل جذور مسموحة.
+4. `guard_run_id` يسمح فقط بـ `[A-Za-z0-9][A-Za-z0-9._-]*` (≤128).
+5. `sanitize_for_log` يستبدل الأسطار الجديدة ومحارف التحكّم ⇒ **يمنع CWE-117**.
+
+**تدهور رشيق:** `dashboard/data.py` يتعامل مع `UnsafePath` برفق — يرجّع
+قائمة فارغة/مخزن ذاكرة بدل إسقاط اللوحة باستثناء.
+
+### ✅ التحقق (434 اختباراً)
+
+`tests/test_path_guard_security.py` — **31 اختباراً هجومياً** يغطّي:
+traversal، مسارات النظام، NUL، طول مفرط، حقن `run_id`، وحقن السجل.
+كل تنبيه له اختبار «خبيث ⇒ مرفوض» + «سليم ⇒ مقبول».
+
+> ⚠️ **حد مسجّل:** لا يمكن للجلسة تأكيد اختفاء التنبيهات من واجهة GitHub لأن
+> `code-scanning/alerts` لا يزال **403**. الإثبات هنا هو: كود مُصلَّح +
+> اختبارات هجومية ناجحة + CI. التأكيد النهائي من واجهة المالك.
+
+---
+
+## 6. ما لا يُرفع أبداً
 
 `.env`، مفاتيح API، `.agent_memory/`، `.agent_runs/`، `.agent_knowledge/`،
 ومخرجات التشغيل المؤقتة — كلها مستبعدة عبر `.gitignore`. راجع
