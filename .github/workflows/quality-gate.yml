@@ -6,7 +6,8 @@ name: Quality Gate
 on:
   push:
     branches: ['**']
-    # توفير الدقائق: لا تُشغَّل بوابة الجودة عند تغيير توثيق فقط.
+    # توفير الدقائق: لا تُشغَّل بوابة الجودة عند تغيير توثيق فقط،
+    # **لكن** الملفات الحاكمة تُفحص دائماً (AGENT_HANDOFF/CLAUDE/docs/scripts).
     # (المستودع عام ⇒ الدقائق غير محدودة أصلاً، لكن paths يقلّل الضجيج.)
     paths:
       - '**.py'
@@ -14,6 +15,10 @@ on:
       - '**.yaml'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - 'AGENT_HANDOFF.md'   # سجل الجلسات — لا يُستثنى من الفحص أبداً
+      - 'CLAUDE.md'          # قواعد المشروع الملزمة
+      - 'docs/**'
+      - 'scripts/**'
   pull_request:
     paths:
       - '**.py'
@@ -21,6 +26,10 @@ on:
       - '**.yaml'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - 'AGENT_HANDOFF.md'
+      - 'CLAUDE.md'
+      - 'docs/**'
+      - 'scripts/**'
 
 permissions:
   contents: read
