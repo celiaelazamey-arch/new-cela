@@ -1528,3 +1528,87 @@ def test_staging_limit_catches_growth_after_initial_stat(
     assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
     assert result.metadata["blocked_reason"] == "file_size_limit_exceeded"
     assert result.size == 4
+
+
+@pytest.mark.parametrize(
+    ("which_results", "return_code", "stdout", "expected"),
+    [
+        ([None, None], None, "", (True, None)),
+        (["/usr/bin/clamdscan"], 0, "", (True, None)),
+        ([None, "/usr/bin/clamscan"], 1, "sample: Eicar.Test", (False, "Eicar.Test")),
+        (["/usr/bin/clamdscan"], 1, "", (False, "ClamAV-Detected-Malware")),
+        (["/usr/bin/clamdscan"], 2, "", (True, None)),
+    ],
+    ids=["no-clamav", "clam-clean", "clamscan-detect", "clam-empty-output", "clam-error-code"],
+)
+def test_scan_for_malware_clamav_outcomes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    which_results: list[str | None],
+    return_code: int | None,
+    stdout: str,
+    expected: tuple[bool, str | None],
+) -> None:
+    from types import SimpleNamespace
+
+    from src.ingestion import pipeline
+
+    sample = tmp_path / "sample.txt"
+    sample.write_text("clean content", encoding="utf-8")
+    which = iter(which_results)
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _name: next(which, None))
+    if return_code is not None:
+        monkeypatch.setattr(
+            pipeline.subprocess,
+            "run",
+            lambda *_args, **_kwargs: SimpleNamespace(returncode=return_code, stdout=stdout),
+        )
+    assert pipeline.scan_for_malware(sample, b"clean", enable_clamav=True) == expected
+
+
+def test_scan_for_malware_finds_eicar_past_head_and_chunk_boundary(tmp_path: Path) -> None:
+    from src.ingestion import pipeline
+
+    sample = tmp_path / "hidden-eicar.bin"
+    sample.write_bytes(b"A" * (pipeline.CHUNK_SIZE_BYTES - 12) + pipeline.EICAR_SIGNATURE)
+
+    assert pipeline.scan_for_malware(sample, b"A" * 4096) == (False, "EICAR-Test-Signature")
+
+
+def test_scan_for_malware_fails_closed_when_file_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline
+
+    sample = tmp_path / "unreadable.txt"
+    sample.write_text("clean", encoding="utf-8")
+    monkeypatch.setattr(
+        pipeline,
+        "_open_regular_no_follow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("read denied")),
+    )
+
+    assert pipeline.scan_for_malware(sample, b"clean") == (False, "malware_scan_io_error")
+
+
+def test_scan_for_malware_uses_custom_scanner_after_builtin_checks(tmp_path: Path) -> None:
+    from src.ingestion.pipeline import scan_for_malware
+
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"safe")
+    observed: list[Path] = []
+
+    def scanner(path: Path) -> tuple[bool, str | None]:
+        observed.append(path)
+        return False, "custom-test-signature"
+
+    assert scan_for_malware(sample, b"safe", av_scanner=scanner) == (False, "custom-test-signature")
+    assert observed == [sample]
+
+
+def test_scan_for_malware_without_optional_scanner(tmp_path: Path) -> None:
+    from src.ingestion.pipeline import scan_for_malware
+
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"safe")
+    assert scan_for_malware(sample, b"safe") == (True, None)

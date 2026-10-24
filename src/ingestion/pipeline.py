@@ -861,6 +861,21 @@ def detect_magic_mime(head: bytes, filename: str = "") -> tuple[str, list[str]]:
     return ("application/octet-stream", warnings)
 
 
+def _file_contains_signature(path: Path, signature: bytes) -> bool:
+    """Search a regular file in bounded chunks, preserving matches across boundaries."""
+    fd = _open_regular_no_follow(path, os.O_RDONLY)
+    overlap = b""
+    try:
+        while chunk := os.read(fd, CHUNK_SIZE_BYTES):
+            searchable = overlap + chunk
+            if signature in searchable:
+                return True
+            overlap = searchable[-(len(signature) - 1) :]
+        return False
+    finally:
+        os.close(fd)
+
+
 def scan_for_malware(
     path: Path,
     head: bytes,
@@ -874,8 +889,11 @@ def scan_for_malware(
       2. استدعاء `av_scanner` المخصّص إن جرى تمريره.
       3. استدعاء `clamdscan` (عبر daemon سريع إن وُجد) أو `clamscan` (بدون shell).
     """
-    if EICAR_SIGNATURE in head:
-        return (False, "EICAR-Test-Signature")
+    try:
+        if EICAR_SIGNATURE in head or _file_contains_signature(path, EICAR_SIGNATURE):
+            return (False, "EICAR-Test-Signature")
+    except OSError:
+        return (False, "malware_scan_io_error")
 
     if av_scanner is not None:
         return av_scanner(path)
@@ -2022,7 +2040,25 @@ def ingest_file(
     mime, warnings = detect_magic_mime(head, clean_name)
     ext = Path(clean_name).suffix.lower()
 
-    # 1. طبقة الفحص ضد الفيروسات والبرمجيات الخبيثة (ClamAV / EICAR / Custom AV Hook)
+    # 1. افحص الحد قبل المسح الكامل كي لا يقرأ AV ملفاتاً تتجاوز الحد.
+    if size_bytes > active_limits.max_file_size_bytes:
+        warnings.append(
+            f"file_size_exceeded: حجم الملف ({size_bytes}) يتجاوز الحد ({active_limits.max_file_size_bytes})"
+        )
+        return IngestionResult(
+            id=file_id,
+            name=clean_name,
+            mime=mime,
+            size=size_bytes,
+            status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
+            parser="size_guard",
+            language=None,
+            text="",
+            metadata={"author": None, "created": None, "blocked_reason": "max_file_size_exceeded"},
+            warnings=warnings,
+        )
+
+    # 2. طبقة الفحص ضد البرمجيات الخبيثة (كامل الملف قبل أي اقتطاع للمخرج).
     is_clean, malware_sig = scan_for_malware(
         safe_path,
         head,
@@ -2062,24 +2098,6 @@ def ingest_file(
             language=None,
             text="",
             metadata={"author": None, "created": None, "blocked_reason": "executable_file"},
-            warnings=warnings,
-        )
-
-    # 3. فحص الحجم الأقصى للملف
-    if size_bytes > active_limits.max_file_size_bytes:
-        warnings.append(
-            f"file_size_exceeded: حجم الملف ({size_bytes}) يتجاوز الحد ({active_limits.max_file_size_bytes})"
-        )
-        return IngestionResult(
-            id=file_id,
-            name=clean_name,
-            mime=mime,
-            size=size_bytes,
-            status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
-            parser="size_guard",
-            language=None,
-            text="",
-            metadata={"author": None, "created": None, "blocked_reason": "max_file_size_exceeded"},
             warnings=warnings,
         )
 

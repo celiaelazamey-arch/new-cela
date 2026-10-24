@@ -72,7 +72,7 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
    - فك ترميز كيانات HTML (`html.unescape`) وإزالة محارف التحكم والمسافات قبل فحص الروابط (`href`, `xlink:href`, `src`) وسمة `style`، مما يحبط التفافات `&#106;avascript:alert(1)` و`data:` و`url(javascript:...)`.
    - إرفاق ترويسات الأمان الموصى بها عند التقديم: `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` و`Content-Disposition: attachment` و`X-Content-Type-Options: nosniff`.
 2. **طبقة فحص الفيروسات والماكرو (`scan_for_malware` + Macro Guard):**
-   - دعم `ClamAV` (`clamscan --no-summary` بلا shell) أو أي ماسح مخصّص (`av_scanner`)، مع كشف فوري لتوقيع `EICAR` القياسي.
+   - دعم `ClamAV` (`clamscan --no-summary` بلا shell) أو أي ماسح مخصّص (`av_scanner`)، مع كشف توقيع `EICAR` القياسي في كامل الملف بتدفق chunks (بما فيه المطابقة العابرة لحد chunk). يجري حد حجم الملف قبل المسح الكامل.
    - حظر ماكرو `VBA` داخل ملفات Office الحديثة (`vbaProject.bin`, `activeX/`) وملفات `OLE2` القديمة (`_VBA_PROJECT`).
 3. **مفتاح Cache مركّب يعزل المستأجرين والإصدار (`IngestionPipeline.cache_key_for`):**
    - المفتاح: `f"{tenant_id}:{PIPELINE_VERSION}:{limits.fingerprint()}:{file_id}"` لمنع تسرب نتائج مستخدم لمستخدم آخر ولإبطال الكاش تلقائياً عند ترقية المحلّل أو تغيير الحدود.
@@ -125,13 +125,14 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
 ## ✅ 5. التحقق المنفذ وحدود الاستنتاج
 
 - `ruff check .`: ناجح.
-- `pytest -q`: **644 passed, 68 warnings**؛ الـ67 تحذيراً من `DeprecationWarning` في Qiskit، وتحذير واحد من اختبار ZIP يضيف اسماً مكرراً عمداً. لا تظهر `ResourceWarning`. اختبارات الاستيعاب/حارس المسارات والـrunner: **186 passed** مع `-W error::ResourceWarning`.
+- `pytest -q`: **653 passed, 68 warnings**؛ 67 تحذيراً من `DeprecationWarning` في Qiskit وتحذير واحد من اختبار ZIP يضيف اسماً مكرراً عمداً. لا تظهر `ResourceWarning`. اختبارات الاستيعاب/حارس المسارات والـrunner: **195 passed** مع `-W error::ResourceWarning`.
 - فحوص التغطية المركزة:
   `pytest -q tests/test_ingestion.py tests/test_path_guard_security.py --cov=src.ingestion.pipeline --cov=src.core.path_guard --cov-branch --cov-report=term-missing:skip-covered`
-  أعادت **182 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`، و`guard_path`. هذا لا يعني 100% للوحدتين بالكامل: pipeline الإجمالي 89% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.
+  أعادت **191 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`, `guard_path`, `detect_magic_mime`، و`scan_for_malware`. هذا لا يعني 100% للوحدتين بالكامل: تغطية `pipeline.py` الإجمالية 90% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.
 - `spec_check.py`, `policy_guard.py`, `secret_scan.py`, `dependency_guard.py`، و`pii_scan.py` نجحت. أبلغ `dependency_guard.py` عن غياب اختياري لـ`browser-use` من بيئة الاختبار.
-- شُغّل `pip-audit -r requirements.txt --format json --vulnerability-service pypi` إلى تقرير مؤقت خارج الريبو، ثم `security_audit.py` عليه: **58 حزمة محلولة، 0 متأثرة، ولا ثغرات معروفة** في هذا الفحص. التقرير المؤقت ليس مرفقاً في Git، والنتيجة لقطة وقتية لا ضماناً مستقبلياً.
-- تغطية الدوال الإضافية التي طُلبت مراجعتها: `detect_magic_mime` مكتملة (لا أسطر/فروع ناقصة). ما زالت هناك تغطية ناقصة في `scan_for_malware` (الأسطر 884–886 و893–895)، `detect_and_decode_text_with_confidence` (983، 985، 1015–1020)، `_extract_openxml_document` (1522–1535، 1579، 1604–1605، 1615)، و`_extract_psd_header` (1727، 1732). هذه فجوات معلنة ولم تُغلق بعد؛ راجع تقرير coverage الحالي قبل اعتبار فروع الرفض/التحذير مغطاة.
+- شُغّل `pip-audit` على `requirements.txt`, `requirements-quantum.txt`, `requirements-ocr.txt`, و`requirements-integrations.txt` إلى تقرير مؤقت خارج الريبو، ثم `security_audit.py` عليه: **82 حزمة محلولة، 0 متأثرة، ولا ثغرات معروفة** في هذا الفحص. التقرير المؤقت ليس مرفقاً في Git، والنتيجة لقطة وقتية لا ضماناً مستقبلياً. أضيف كذلك تدقيق يومي لمجموعات النواة في `security-scan.yml`.
+- `detect_magic_mime` و`scan_for_malware` صارتا 100% أسطر/فروع في suite التغطية المركزة؛ ويبحث فحص EICAR الآن في كامل الملف ضمن chunks مع overlap بين الحدود، بعد حارس الحجم.
+- الفجوات المتبقية في الدوال المطلوب تدقيقها: `detect_and_decode_text_with_confidence` (الأسطر 1001، 1003، 1033–1038)، `_extract_openxml_document` (1540–1553، 1597، 1622–1623، 1633)، و`_extract_psd_header` (1745، 1750). فروعها غير المغطاة مذكورة في ملف PR/تقرير التغطية؛ لم تُغلق بعد.
 - لم تُنفذ مصفوفة الملفات الواقعية بعد؛ سجلها في [مصفوفة الاختبار اليدوي](file-ingestion-manual-test-matrix.md).
 - حفظ SVG الأصلي دون تغيير لم يُتحقق منه؛ طبقة `pipeline.py` تنتج المعاينة المعقّمة فقط ولا تثبت سلوك طبقة التخزين.
 - لا تُعد نتائج CI أو unit tests بديلاً عن مصفوفة الاختبار الواقعية أو مراجعة أمنية مستقلة.
