@@ -108,14 +108,19 @@ DEFAULT_LOCAL_PAYMENTS: tuple[LocalPaymentMethod, ...] = (
 NICHE_CATALOG: dict[VerticalNiche, NicheWorkflowSpec] = {
     VerticalNiche.PRINT_PREPRESS: NicheWorkflowSpec(
         niche=VerticalNiche.PRINT_PREPRESS,
-        title_ar="أتمتة المطابع وفصل الألوان ومراجعة أوامر الطباعة",
-        positioning_statement_ar="وكيل ذكي للمطابع وفصل الألوان ومراجعة ملفات الطباعة بالعربية",
-        target_segment_ar="المطابع التجارية، مكاتب فصل الألوان، ودور النشر في مصر والمنطقة",
+        title_ar="أتمتة مطابع الملابس (سلك سكرين) وأرشفة الأفلام وفصل الألوان",
+        positioning_statement_ar="وكيل ذكي لمطابع الملابس (سلك سكرين) وفهرسة أفلام الطباعة وفصل الألوان بالعربية",
+        target_segment_ar="مطابع الملابس (سلك سكرين)، مكاتب فصل الألوان، ومصانع التيشيرتات والهودي في مصر والمنطقة",
         high_value_workflows=(
-            "استخراج ومطابقة مواصفات أمر الشغل (المقاس، عدد الألوان، الدقة، الهوامش) من PDF/صور بـ OCR عربي",
-            "تدقيق النصوص العربية قبل الطباعة ومنع أخطاء التشكيل والاتجاه (RTL) وتسرب بيانات العميل",
+            "فهرسة وأرشفة أفلام الطباعة (الكلك/البوزيتيف) والبحث الفوري فيها بالعربية لاسترجاع الموديلات وتوفير إخراج الأفلام",
+            "فحص كثافة سواد الفيلم وتغطية الحبر وحساب الشبلونات والأرضية البيضاء ورقم الحرير (43T–120T) والتسعير بالجنيه",
         ),
-        core_modules_used=("src.ocr.pipeline", "src.core.policy", "src.core.memory", "scripts.pii_scan"),
+        core_modules_used=(
+            "src.screen_print.engine",
+            "src.ocr.pipeline",
+            "src.core.policy",
+            "scripts.pii_scan",
+        ),
         recommended_plan=PlanTier.TEAM,
         target_success_rate=0.90,
         managed_setup_included=True,

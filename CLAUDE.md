@@ -50,6 +50,7 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | الحصص | `src/core/quota.py` | `TrustLevel.PAID` ممنوع في الوضع صفري التكلفة |
 | الخطط والتسعير | `src/core/pricing.py` | `PlanTier` · `PLAN_CATALOG` · `evaluate_usage_alert` (80%) · `calculate_unit_economics` |
 | استراتيجية النيش | `src/core/niche_strategy.py` | `VerticalNiche` · `NICHE_CATALOG` · `validate_positioning_claim` · `evaluate_90_day_gate` |
+| مطبعة الملابس (سلك سكرين) | `src/screen_print/engine.py` | `FilmArchiveStore` · `inspect_film_image` · `recommend_mesh_and_lpi` · `calculate_screen_print_job` |
 | التنفيذ | `src/execution/sandbox.py` | `create_subprocess_exec` **بلا shell** + timeout |
 | الذاكرة | `src/core/memory.py` | JSONL append-only، خارج git |
 

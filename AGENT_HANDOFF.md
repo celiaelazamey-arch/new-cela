@@ -108,12 +108,14 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 11-ب | دفعة **الوعي الوظيفي** (12 س/ج: تقادم نموذج الذات · drift · معايرة · L0–L3 + kill switch · مقاييس · محكّم · 29 اختبار حقن) + خطة الإكمال | ✅ **منفّذة ومُدمجة بلا تعارض** (حُلَّ تعارض PR #9 مع PR #8) | 7 فواحص ✅ · ruff ✅ · `docs/functional-awareness-qa.md` · `docs/completion-plan.md` · CI ✅ `40072241022` | `5811b5e` + `372ae40` |
 | 12 | **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`** + **حل تعارض PR #9** | ✅ **مقبولة** (أكدتها لقطة شاشة PR #10 الأخضر بالكامل) | `docs/monetization-plan.md` · `src/core/pricing.py` · `--plans`/`--plan` · توحيد PR #8 + PR #9 + المهمة 12 · **488 pytest ✅** · PR #10 `CLEAN` ✅ | `aeb9427` + `7660215` |
 | 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مقبولة ومُدمجة في `main`** (PR #10 `3e9c2d6`) | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · دمج PR #10 ✅ | `ddda822` + `3e9c2d6` |
-| 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** · كل الحواجز وCI ✅ | `d5443dc` |
+| 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مقبولة** (أكدها المستخدم بطلب تشغيل `--niches` وذكر مطبعته الخاصة) | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** | `d5443dc` + `8c5cf5e` |
+| 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · كل الحواجز وCI ✅ | هذا الـ commit |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 14 — استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + بوابة القرار بعد 90 يوماً (`evaluate_90_day_gate`).
+- **المهمة النشطة:** رقم 15 — تخصيص وبناء محرك **مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة** (`src/screen_print/engine.py`) لخدمة مطبعة المستخدم مباشرةً (العميل رقم #0 / Dogfooding) وأرشيف أفلامه الكبير.
 - **الفرع الحالي:** `arena/3c154eae-new-cela` (متفرّع من `main` @ `3e9c2d6` بعد دمج PR #10 وPR #9).
-- 🎯 **مرجع استراتيجية النيش العمودي الجديد:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
+- 👕 **محرك السلك سكرين وأفلام الطباعة الجديد:** [`src/screen_print/engine.py`](src/screen_print/engine.py) + اختبارات [`tests/test_screen_print.py`](tests/test_screen_print.py).
+- 🎯 **مرجع استراتيجية النيش العمودي:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
 - 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
 - 📋 **خطة إكمال البنود الناقصة** (من PR #9): [`docs/completion-plan.md`](docs/completion-plan.md) — 15 فجوة مجرودة من الكود، 4 مراحل.
 - **مرجع الوعي الوظيفي الجديد:** [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) — الـ12 سؤالاً مُقيَّمة قبل/بعد بأدلة ملف:سطر.
@@ -166,6 +168,13 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 15: **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) لمطبعة المستخدم (العميل رقم #0)**:
+  - **💡 نقطة التحول الاستراتيجية:** كشف المستخدم أنه يملك فعلياً **مطبعة ملابس سلك سكرين ولديه أرشيف كبير من أفلام الطباعة** (`انا املك مطبعة ملابس ايضا سلك سكرين ولدي افلام طباعة كتير`) — مما يعني أن النيش الأول (`print_prepress`) ليس فرضية نظرية بل هو عمله الفعلي (Customer #0 بتكلفة استحواذ 0 ج.م وبيانات حقيقية من أرشيف أفلامه!).
+  - **✅ بناء الوحدة البرمجية [`src/screen_print/engine.py`](src/screen_print/engine.py) + `tests/test_screen_print.py`:**
+    1. **أرشيف أفلام السلك سكرين الذكي (`FilmArchiveStore` & `FilmSetRecord`):** يسجّل كل طقم أفلام (`film_id`، اسم الموديل/التصميم، اسم العميل/البراند، نوع القطعة، لون القماش `dark`/`light`، عدد وطبقات الألوان، أرقام الحرير بالـ T، ومكان الحفظ الفعلي في الأدراج/الحافظات) مع بحث نصي فوري بالعربية لاسترجاع الأفلام في ثوانٍ عند طلبات إعادة التشغيل (Re-orders).
+    2. **الفحص الفني لصورة الفيلم قبل تصوير الشبلونة (`inspect_film_image` عبر `Pillow`):** يحسب كثافة السواد (`black_density_pct`) لمنع تسريب إضاءة الكشاف أثناء تصوير الإيمالشن، ونسبة تغطية الحبر (`ink_coverage_pct`)، وسلامة الهامش الخارجي لعلامات التسجيل/الصليبة (`has_margin_for_registration`).
+    3. **حاسبة الشبلونات ورقم الحرير واستهلاك الحبر والتسعير بالجنيه (`calculate_screen_print_job` & `recommend_mesh_and_lpi`):** تضيف تلقائياً شبلونة أرضية بيضاء (`Underbase White` + `Flash Cure`) للأقمشة الغامقة، وتوصي برقم الحرير (`43T`–`110T`) وأقصى تردد شبكي `LPI` لمنع المواريه (`Moiré`)، وتحسب استهلاك الحبر بالجرام والوفر المالي المباشر بالجنيه الناتج عن وجود الفيلم في الأرشيف (`film_archive_savings_egp`).
+  - **✅ التحقق:** **500 pytest ✅** · **72 عقداً معمارياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
 - **2026-10-24** — المهمة 14: **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً**:
   - **✅ دمج PR #10 (وPR #9 تلقائياً) في `main` (`3e9c2d6`):** بناءً على طلب المستخدم `Please merge the pull request`، نُفِّذ `gh pr merge 10 --merge` بنجاح وأصبح `main` يضم المهام 1–13 كاملةً بلا أي طلب سحب معلّق.
   - **✅ التحقق المصدري الحي لوضع Manus AI حتى أكتوبر 2026:**
