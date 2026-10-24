@@ -22,8 +22,12 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| **البرانش الوحيد المسموح** | `arena/1756fb0e-new-cela` |
-| بوابة الدفع | `origin arena/1756fb0e-new-cela` فقط |
+| **البرانش الوحيد المسموح** | **برانش الجلسة الحالية** — تحقق منه بـ `git branch --show-current` (حالياً: `arena/9131baa0-new-cela`) |
+| بوابة الدفع | `origin <برانش الجلسة>` فقط |
+
+> ℹ️ كل جلسة Arena تُنشئ برانشاً جديداً بالنمط `arena/<id>-new-cela`. الاسم المسجّل هنا هو
+> **آخر جلسة معروفة** وليس ثابتاً — المرجع الحاكم هو مخرج `git branch --show-current` في بداية الجلسة.
+> سجل البرانشات: `AGENT_HANDOFF.md` القسم 2.
 
 - ❌ **يُمنع** إنشاء/تحويل/الدفع إلى أي برانش آخر.
 - ❌ **يُمنع** `git push --force` أو حذف branches.
@@ -168,7 +172,7 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 ## 9. قبل أن تبدأ أي مهمة
 
 - [ ] قرأت `AGENT_HANDOFF.md` وتعرف آخر مهمة منفّذة.
-- [ ] تعرف أنك على `arena/1756fb0e-new-cela`.
+- [ ] شغّلت `git branch --show-current` وتعرف اسم برانش الجلسة (حالياً `arena/9131baa0-new-cela`) ولن تدفع إلى غيره.
 - [ ] ستبني على **المصدر الأصلي** لا على مخرجاتك السابقة (البند 4: Logic Drift).
 - [ ] ستشغّل البوابات كلها قبل إعلان الاكتمال.
 - [ ] ستسجّل ما فعلته في `AGENT_HANDOFF.md` وتدفعه.
