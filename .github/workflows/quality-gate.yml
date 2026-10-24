@@ -42,5 +42,19 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      # تدقيق أمني معلوماتي عبر قاعدة استشارات PyPI العامة — بلا مفاتيح
+      # ولا صلاحيات GitHub Security. التقرير لا يُفشل البناء حالياً بسبب
+      # التثبيت الحصري الموثّق في SECURITY.md:
+      #   browser-use 0.9.7 → aiohttp==3.12.15
+      # الهدف: إبقاء التنبيه مرئياً وقابلاً للتتبّع في كل تشغيل بدل أن يظل
+      # مخفياً خلف 403 في واجهة Security.
+      - name: Dependency Security Audit (informational)
+        run: |
+          python -m pip install --quiet pip-audit
+          pip-audit -r requirements.txt -r requirements-integrations.txt \
+                    -r requirements-ocr.txt -r requirements-quantum.txt \
+            --format json > audit-report.json || true
+          python scripts/security_audit.py audit-report.json
+
       - name: Tests (pytest)
         run: pytest -q
