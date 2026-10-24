@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -23,6 +24,7 @@ from src.screen_print import (
     InkType,
     calculate_screen_print_job,
 )
+from src.screen_print.cloud_sync import CloudSyncError, SupabaseArchiveClient, SupabaseConfig
 from src.screen_print.design_tools import (
     build_mockup_prompt,
     build_pattern_prompt,
@@ -38,6 +40,15 @@ ARCHIVE_PATH = DATA_DIR / "film_archive.jsonl"
 
 
 def get_store() -> FilmArchiveStore:
+    # On a shared Streamlit host, never mix local archive files across authenticated users.
+    user = st.session_state.get("cloud_user")
+    if isinstance(user, dict) and isinstance(user.get("id"), str):
+        try:
+            user_id = str(uuid.UUID(user["id"]))
+        except ValueError:
+            raise ValueError("Invalid authenticated user identifier.") from None
+        account_root = DATA_DIR / "accounts" / user_id
+        return FilmArchiveStore(account_root / "film_archive.jsonl", allowed_root=DATA_DIR)
     return FilmArchiveStore(ARCHIVE_PATH, allowed_root=DATA_DIR)
 
 
@@ -344,6 +355,138 @@ def render_trend_notes() -> None:
             )
 
 
+def _cloud_client() -> SupabaseArchiveClient | None:
+    """Build cloud client from environment/Streamlit secrets; never embed project secrets."""
+    try:
+        url = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_ANON_KEY", "")
+    except (FileNotFoundError, KeyError):
+        return None
+    if not url or not key:
+        return None
+    try:
+        return SupabaseArchiveClient(SupabaseConfig(url=str(url), anon_key=str(key)))
+    except ValueError:
+        return None
+
+
+def report(message: str) -> None:
+    """Display a safe cloud operation error in the Streamlit UI."""
+    st.error(message)
+
+
+def _save_cloud_session(response: dict[str, object]) -> bool:
+    user = response.get("user")
+    token = response.get("access_token")
+    if not isinstance(user, dict) or not isinstance(user.get("id"), str) or not isinstance(token, str):
+        return False
+    st.session_state["cloud_user"] = {"id": user["id"], "email": str(user.get("email", ""))}
+    st.session_state["cloud_access_token"] = token
+    return True
+
+
+def _sync_archive(client: SupabaseArchiveClient, access_token: str, user_id: str) -> tuple[int, int, list[str]]:
+    """Add one-sided records only; never silently overwrite a divergent same-ID record."""
+    store = get_store()
+    local = {record.film_id: record for record in store.list_all()}
+    remote_rows = client.pull_records(access_token)
+    remote = {str(row["film_id"]): FilmSetRecord.from_dict(row) for row in remote_rows}
+    conflicts = sorted(
+        film_id for film_id in local.keys() & remote.keys()
+        if local[film_id].to_dict() != remote[film_id].to_dict()
+    )
+    if conflicts:
+        return 0, 0, conflicts
+
+    local_only = [record for film_id, record in local.items() if film_id not in remote]
+    client.push_records(access_token, user_id, [record.to_dict() for record in local_only])
+    # Re-read after insert-only upserts to detect a concurrent insert without overwriting it.
+    remote_rows = client.pull_records(access_token)
+    remote = {str(row["film_id"]): FilmSetRecord.from_dict(row) for row in remote_rows}
+    conflicts = sorted(
+        film_id for film_id in local.keys() & remote.keys()
+        if local[film_id].to_dict() != remote[film_id].to_dict()
+    )
+    if conflicts:
+        return len(local_only), 0, conflicts
+    downloaded = [record for film_id, record in remote.items() if film_id not in local]
+    for record in downloaded:
+        store.add_film_set(record)
+    return len(local_only), len(downloaded), []
+
+
+def render_cloud_account() -> None:
+    st.subheader("الحساب السحابي والمزامنة")
+    client = _cloud_client()
+    if client is None:
+        st.info(
+            "خدمة Supabase غير مهيأة. أضف SUPABASE_URL وSUPABASE_ANON_KEY إلى إعدادات Streamlit/البيئة، "
+            "ثم نفّذ مخطط قاعدة البيانات الموضح في docs/screen-print-cloud-sync.md. لا توجد مفاتيح في المستودع."
+        )
+        return
+
+    user = st.session_state.get("cloud_user")
+    token = st.session_state.get("cloud_access_token")
+    if not user or not token:
+        st.caption("أنشئ حساباً أو سجّل الدخول بالبريد وكلمة المرور. تُحفظ جلسة الدخول في ذاكرة جلسة التطبيق فقط.")
+        login_tab, signup_tab = st.tabs(["تسجيل الدخول", "إنشاء حساب"])
+        with login_tab:
+            with st.form("cloud_login_form"):
+                email = st.text_input("البريد الإلكتروني", key="cloud_login_email")
+                password = st.text_input("كلمة المرور", type="password", key="cloud_login_password")
+                submitted = st.form_submit_button("دخول")
+            if submitted:
+                try:
+                    if not _save_cloud_session(client.sign_in(email, password)):
+                        st.error("لم تُنشأ جلسة. قد يتطلب الحساب تأكيد البريد الإلكتروني.")
+                    else:
+                        st.rerun()
+                except CloudSyncError as exc:
+                    report(str(exc))
+        with signup_tab:
+            with st.form("cloud_signup_form"):
+                new_email = st.text_input("البريد الإلكتروني", key="cloud_signup_email")
+                new_password = st.text_input("كلمة المرور (8 أحرف على الأقل)", type="password", key="cloud_signup_password")
+                create = st.form_submit_button("إنشاء الحساب")
+            if create:
+                if len(new_password) < 8:
+                    st.error("استخدم كلمة مرور من 8 أحرف على الأقل.")
+                else:
+                    try:
+                        result = client.sign_up(new_email, new_password)
+                        if not _save_cloud_session(result):
+                            st.success("تم إرسال طلب التسجيل. راجع بريدك لتأكيد الحساب، ثم سجّل الدخول.")
+                        else:
+                            st.success("تم إنشاء الحساب وتسجيل الدخول.")
+                            st.rerun()
+                    except CloudSyncError as exc:
+                        report(str(exc))
+        return
+
+    st.write(f"مسجل الدخول: **{user['email']}**")
+    st.caption("المزامنة تقتصر على بيانات بطاقات الأرشيف الوصفية؛ لا تُرفع الصور أو الملفات.")
+    col_sync, col_out = st.columns(2)
+    if col_sync.button("مزامنة الأرشيف الآن", type="primary"):
+        try:
+            uploaded, downloaded, conflicts = _sync_archive(client, token, str(user["id"]))
+        except (CloudSyncError, OSError, ValueError, KeyError) as exc:
+            report(f"تعذرت المزامنة: {exc}")
+        else:
+            if conflicts:
+                st.error("توجد سجلات محلية وسحابية متعارضة للمعرّفات التالية؛ لم تُستبدل أي نسخة: " + ", ".join(conflicts))
+            else:
+                st.success(f"اكتملت المزامنة: أُرسل {uploaded} سجل، واستُقبل {downloaded} سجل."
+                           " الحذف لا يتزامن تلقائياً؛ راجع الأرشيفين قبل حذف البيانات.")
+    if col_out.button("تسجيل الخروج"):
+        try:
+            client.sign_out(token)
+        except CloudSyncError:
+            report("تعذر تأكيد تسجيل الخروج من الخدمة؛ أُزيلت جلسة هذا المتصفح محلياً. أعد المحاولة إذا بقيت الجلسة نشطة.")
+        st.session_state.pop("cloud_user", None)
+        st.session_state.pop("cloud_access_token", None)
+        st.rerun()
+
+
 def main() -> None:
     st.set_page_config(page_title="مساعد مطبعة السلك سكرين — محلي", page_icon="🖨️", layout="wide")
     st.markdown(
@@ -351,17 +494,18 @@ def main() -> None:
         unsafe_allow_html=True,
     )
     st.title("مساعد مطبعة السلك سكرين")
-    st.caption("نسخة محلية أحادية المستخدم — لا تسجيل دخول ولا خدمة سحابية ولا مزامنة.")
+    st.caption("دعم تجريبي لتسجيل دخول Supabase ومزامنة يدوية لسجلات الأرشيف؛ تُبقى البيانات محلية ما لم تهيأ الخدمة وتسجل الدخول.")
     st.info(
-        "البيانات الوصفية المحفوظة تظل على هذا الجهاز في مجلد البيانات المحدد. "
+        "المزامنة السحابية لا تشمل صوراً أو ملفات، وتعمل فقط بعد إعداد مشروع Supabase وسياسات RLS. "
         "لا ترفع ملفات عملاء حقيقية إلى معاينة مشتركة، ولا تعتبر هذه النسخة جاهزة للإطلاق العام."
     )
     flash_message = st.session_state.pop("screen_print_flash", None)
     if flash_message:
         st.success(flash_message)
 
-    archive_tab, inspect_tab, estimate_tab, design_tab, optimization_tab, trends_tab = st.tabs(
+    cloud_tab, archive_tab, inspect_tab, estimate_tab, design_tab, optimization_tab, trends_tab = st.tabs(
         [
+            "الحساب والمزامنة",
             "الأرشيف",
             "فحص صورة فيلم",
             "تقدير أمر شغل",
@@ -370,6 +514,8 @@ def main() -> None:
             "الاتجاهات والتخصيص",
         ]
     )
+    with cloud_tab:
+        render_cloud_account()
     with archive_tab:
         render_archive()
     with inspect_tab:

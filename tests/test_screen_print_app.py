@@ -17,7 +17,7 @@ def test_local_screen_print_app_renders_without_exceptions(monkeypatch, tmp_path
     app = app_test()
 
     assert not app.exception
-    assert len(app.tabs) == 8
+    assert len(app.tabs) == 9
     assert (tmp_path / "screen-print-data").exists() is False
 
 
