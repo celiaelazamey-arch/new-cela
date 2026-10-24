@@ -1,41 +1,33 @@
 """
-خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (Layered File Ingestion Pipeline v2.0)
+خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (Layered File Ingestion Pipeline v2.1)
 ======================================================================================
 يجسّد هذا المحرك المواصفة المعمارية والأمنية لاستيعاب الملفات (`docs/file-ingestion-pipeline.md`):
 
   `upload ← detect ← scan ← route ← extract ← normalize ← store ← index`
 
-المبادئ الهندسية والأمنية المطبّقة (شاملة إصلاحات P0 + P1 + P2):
+الضوابط الأمنية والهندسية المطبّقة (شاملة مراجعات P0 + P1 + P2 + منع الإيجابيات الكاذبة):
   1. **لا تثق بالامتداد — افحص البصمة الثنائية (`detect_magic_mime`):**
-     يفحص أول 4096 بايت (`Magic Bytes`) لتحديد النوع الحقيقي (`PDF`, `PNG`, `JPEG`, `GIF`,
-     `WEBP`, `BMP`, `TIFF`, `PSD`, `EPS`, `ZIP/DOCX/XLSX/PPTX`, `GZ`, `7Z`, `RAR`, `TAR`,
-     `OLE2`, `SQLite`, `EXE/DLL/ELF/Mach-O/JavaClass/WASM/SH/Scripts`) ويقارنه بالامتداد؛
-     وعند التعارض يعلّم الملف بـ `suspicious_extension_mismatch`.
-  2. **حظر التنفيذيات والماكرو وفحص البرمجيات الخبيثة (`scan_for_malware`):**
-     يحظر `exe | dll | elf | macho | class | wasm | sh | bat | ps1 | vbs | js | jar | msi | scr | apk`،
-     ويكشف ماكرو `VBA` (`vbaProject.bin` داخل OOXML و`_VBA_PROJECT` داخل `OLE2`)،
-     ويدعم فحص `ClamAV` / `EICAR` أو ماسح مضاد فيروسات مخصّص (`av_scanner`).
-  3. **حماية XML الصارمة (`safe_xml_fromstring` — P0):**
-     يرفض تعريفات `<!DOCTYPE` و`<!ENTITY` (`XXE` / `Billion Laughs`) قبل التحليل،
-     ويستخدم `defusedxml` مع فرض سقوف حيّة على حجم XML وعمق الشجرة وعدد العقد.
-  4. **الحماية التدفقية ضد قنابل الضغط (`_safe_read_zip_entry` — P0):**
-     لا يثق بالحجم المعلن في ترويسة `ZIP` (`info.file_size` القابل للتزوير)، بل يفرض سقفاً
-     فعلياً أثناء القراءة التدفقية لكل ملف وللمجموع الكلي، ويحظر الأرشيفات المتداخلة (`Nested Archives`)
-     واجتياز المسارات (`Path Traversal`)، ويحمي الصور من قنابل فك الضغط (`max_image_pixels`).
-  5. **تعقيم `SVG/HTML` بقائمة بيضاء (`Allowlist Sanitizer` — P1):**
-     يحلّل شجرة العناصر بـ `HTMLParser` ويسمح فقط بوسوم وسمات آمنة، ويفك ترميز الكيانات
-     (`&#106;avascript:`) ومحارف التحكم قبل فحص الروابط و`style`، ويحذف `<script>` و`<foreignObject>`
-     و`<iframe>` وكافة سمات `on*=`، ويوصي بترويسات `CSP` و`Content-Disposition: attachment`.
-  6. **عزل المعالجة الاختياري في عملية فرعية (`ingest_file_isolated` — P0):**
-     يتيح تشغيل المحلّلات داخل عملية فرعية معزولة بلا صدفة (`shell=False`) وبسقف زمني (`timeout`)
-     وسقف موارد لمنع انهيار أو تعليق الخادم عند مواجهة ملفات هجومية.
-  7. **الدقة التقنية للمطابع والملفات العربية (`PSD Resources | Effective DPI | Full XLSX | cp1256` — P2):**
-     يقرأ قسم `Image Resources` (`8BIM`: `0x03EE`, `0x0415`, `0x0435`) في `PSD` للتمييز بين القنوات
-     الأساسية وقنوات `Spot/Alpha` وأسمائها، ويحسب `effective_dpi` الفعلي بمعلومية مقاس الطباعة،
-     ويستخرج جميع أوراق وخلايا `XLSX` (`sharedStrings`, `inlineStr`, الأرقام، ونتائج المعادلات)،
-     ويقيّم ثقة ترميز `Windows-1256` (`encoding_confidence`) مع مرجع `charset_normalizer`.
-  8. **منع تكرار المعالجة بعزل المستأجرين والإصدار (`tenant + PIPELINE_VERSION + limits + sha256` — P1):**
-     يضمن عدم تسرب نتائج مستخدم لمستخدم آخر وعدم إرجاع نتائج قديمة عند تحديث المحلّل أو الحدود.
+     يفحص أول 4096 بايت (`Magic Bytes`) لتحديد النوع الحقيقي، مع التمييز الذكي بين الاسكربتات
+     التنفيذية (`bat/ps1/vbs/sh`) وبين الملفات النصية التقنية (`.txt/.md`) التي تذكر أوامر مثل
+     `powershell` (تحذير `script_keyword_warning` بدلاً من الحظر الخاطئ).
+  2. **حماية XML الصارمة (`safe_xml_fromstring` + `defusedxml` — P0):**
+     يرفض `<!DOCTYPE` و`<!ENTITY` (`XXE` / `Billion Laughs`) ويفرض سقوفاً حيّة على الحجم والعمق والعناصر.
+  3. **فك الضغط التدفقي المحدود (`_safe_read_zip_entry` — P0 + دعم Data Descriptors و OOXML Embeddings):**
+     - يرفض صراحةً طرق الضغط غير القياسية (`bzip2`, `lzma`, `deflate64`) وحجوم `ZIP64` المفرطة.
+     - يدعم `Data Descriptors` الشرعية في ملفات `Word / Excel / LibreOffice / Google Docs` (`lfh_uncomp == 0`).
+     - يسمح بالمضمّنات الشرعية داخل `word/embeddings/*.xlsx` و`ppt/embeddings/*.xlsx` دون فكّها مع احتسابها في السقف،
+       بينما يحظر الأرشيفات المتداخلة (`Nested Archives`) داخل ملفات `.zip` العادية.
+     - يفك الضغط عبر `zlib.decompressobj(-15)` بسقف `max_length` صارم أثناء القراءة الفعلية لكشف الترويسات المزوّرة.
+  4. **عزل العملية الفرعية المشدّد (`ingest_file_isolated` — P0):**
+     - مفعّل افتراضياً في `IngestionPipeline` (`isolate_in_subprocess=True`).
+     - يطبّق حدود موارد النظام (`resource.setrlimit`: `RLIMIT_AS`, `RLIMIT_CPU`, `RLIMIT_FSIZE`).
+     - يعطّل الوصول إلى الشبكة داخل العامل المعزول (`_disable_worker_network` يغلق `socket.socket`).
+     - يشغّل العامل في مجموعة عمليات مستقلة (`start_new_session=True`) وفي مجلد مؤقت معزول،
+       ويقتل مجموعة العمليات بالكامل (`os.killpg SIGKILL`) عند انتهاء المهلة، ويتواصل بـ **JSON فقط (صفر pickle)**.
+  5. **معقّم القائمة البيضاء المشدّد لـ `SVG/HTML` (`_AllowlistSvgHtmlSanitizer` — P1):**
+     - يحذف `<script>`, `<foreignObject>`, `<use>`, `<image>`, `<animate>`, `<set>`, `<iframe>`, `<object>`, `<style>`.
+     - يفك كيانات HTML (`html.unescape`) ومحارف التحكم قبل فحص الروابط، ويطبّق قائمة بيضاء لخصائص CSS في `style`.
+  6. **مفتاح Cache معزول بالمستأجر والإصدار مع TTL وسقف حجم وحذف حسب المستأجر (`IngestionPipeline`).**
 """
 from __future__ import annotations
 
@@ -46,10 +38,15 @@ import html
 import io
 import json
 import logging
+import os
 import shutil
+import signal
+import socket
 import struct
 import subprocess
 import sys
+import tempfile
+import time
 import zipfile
 import zlib
 from collections.abc import Callable
@@ -73,8 +70,9 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "2.0.0"
+PIPELINE_VERSION = "2.1.0"
 CHUNK_SIZE_BYTES = 65536
+MAX_WORKER_STDOUT_BYTES = 5 * 1024 * 1024
 EICAR_SIGNATURE = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 AvScannerCallable = Callable[[Path], tuple[bool, str | None]]
@@ -91,7 +89,7 @@ class IngestionStatus(str, Enum):
 
 @dataclass(frozen=True)
 class IngestionLimits:
-    """الحدود الأمنية الصارمة ضد استنزاف الذاكرة وقنابل الضغط (Zip/XML/Image Bombs)."""
+    """الحدود الأمنية الصارمة ضد استنزاف الذاكرة وقنابل الضغط (Zip/XML/Image/PSD Bombs)."""
 
     max_file_size_bytes: int = 50 * 1024 * 1024          # 50 MB
     max_uncompressed_bytes: int = 100 * 1024 * 1024      # 100 MB
@@ -105,8 +103,11 @@ class IngestionLimits:
     max_image_pixels: int = 64_000_000                   # 64 MP ضد Decompression Bomb
     max_pdf_pages: int = 500                             # أقصى عدد صفحات PDF
     max_xlsx_rows: int = 5_000                           # أقصى عدد صفوف XLSX قبل الاقتطاع
+    max_psd_resource_bytes: int = 4 * 1024 * 1024        # 4 MB سقف قسم موارد PSD
+    max_psd_resource_blocks: int = 256                   # أقصى عدد بلوكات 8BIM في PSD
+    worker_max_memory_mb: int = 512                      # سقف ذاكرة العملية الفرعية بالميجابايت
     parser_timeout_seconds: float = 15.0                 # مهلة العملية الفرعية المعزولة
-    isolate_in_subprocess: bool = False                  # تشغيل الاستخراج في subprocess معزول
+    isolate_in_subprocess: bool = False                  # عزل اختياري على مستوى الدالة (مفعّل افتراضياً في IngestionPipeline)
     enable_clamav: bool = False                          # تفعيل فحص ClamAV إن وُجد على النظام
     target_print_width_cm: float | None = None           # عرض الطباعة الفعلي بالسنتيمتر لحساب DPI
     target_print_height_cm: float | None = None          # ارتفاع الطباعة الفعلي بالسنتيمتر لحساب DPI
@@ -175,7 +176,6 @@ class IngestionResult:
         )
 
 
-# خريطة الامتدادات المتوقعة للمقارنة مع البصمة الثنائية (Magic Bytes)
 _EXTENSION_MIME_MAP: dict[str, str] = {
     ".txt": "text/plain",
     ".md": "text/markdown",
@@ -298,8 +298,18 @@ _EXECUTABLE_EXTENSIONS: frozenset[str] = frozenset(
     }
 )
 
+_SAFE_DOCUMENT_TEXT_EXTENSIONS: frozenset[str] = frozenset(
+    {".txt", ".md", ".csv", ".tsv", ".json", ".html", ".htm", ".xml", ".eml"}
+)
+
 _NESTED_ARCHIVE_EXTENSIONS: frozenset[str] = frozenset(
     {".zip", ".gz", ".tgz", ".tar", ".7z", ".rar", ".bz2", ".xz"}
+)
+
+_OOXML_EMBEDDING_PREFIXES: tuple[str, ...] = (
+    "word/embeddings/",
+    "ppt/embeddings/",
+    "xl/embeddings/",
 )
 
 _MACHO_MAGICS: tuple[bytes, ...] = (
@@ -320,6 +330,7 @@ _SCRIPT_SIGNATURES: tuple[bytes, ...] = (
 )
 
 # القائمة البيضاء الصارمة لوسوم وسمات SVG/HTML (P1 — Allowlist Sanitizer)
+# ملاحظة: <use> و <image> و <animate> و <set> مستبعدة عمداً لمنع تحميل موارد خارجية أو حقن سمات متحرك
 _ALLOWED_SVG_HTML_TAGS: frozenset[str] = frozenset(
     {
         "svg",
@@ -388,6 +399,25 @@ _DROP_SUBTREE_TAGS: frozenset[str] = frozenset(
         "applet",
         "style",
         "handler",
+        "use",
+        "image",
+        "animate",
+        "animatemotion",
+        "animatetransform",
+        "set",
+        "mpath",
+        "feimage",
+        "audio",
+        "video",
+        "canvas",
+        "form",
+        "input",
+        "button",
+        "select",
+        "textarea",
+        "meta",
+        "link",
+        "base",
     }
 )
 
@@ -448,6 +478,25 @@ _ALLOWED_SVG_HTML_ATTRS: frozenset[str] = frozenset(
         "colspan",
         "rowspan",
         "style",
+        "rel",
+    }
+)
+
+_ALLOWED_CSS_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "fill",
+        "fill-opacity",
+        "stroke",
+        "stroke-width",
+        "stroke-opacity",
+        "opacity",
+        "color",
+        "font-size",
+        "font-weight",
+        "font-family",
+        "text-anchor",
+        "display",
+        "visibility",
     }
 )
 
@@ -488,6 +537,8 @@ def detect_magic_mime(head: bytes, filename: str = "") -> tuple[str, list[str]]:
     """
     الكشف عن نوع الملف الحقيقي عبر البصمة الثنائية (`Magic Bytes`) ومقارنته بالامتداد.
     لا يثق بالامتداد وحده، ويُصدر تحذيراً `suspicious_extension_mismatch` عند التعارض.
+    للنصوص العادية (`.txt/.md`) التي تذكر كلمات مثل `powershell`، يُصدر تحذير `script_keyword_warning`
+    بدلاً من حظرها بالخطأ (منع False Positives).
     """
     warnings: list[str] = []
     ext = Path(filename).suffix.lower() if filename else ""
@@ -558,16 +609,20 @@ def detect_magic_mime(head: bytes, filename: str = "") -> tuple[str, list[str]]:
     else:
         stripped = head.lstrip()
         lower_head = stripped[:512].lower()
-        if any(sig in lower_head for sig in _SCRIPT_SIGNATURES):
-            magic_mime = "application/x-executable-script"
-        elif lower_head.startswith(b"<svg") or (b"<svg" in lower_head and b"xmlns" in lower_head):
+        if lower_head.startswith(b"<svg") or (b"<svg" in lower_head and b"xmlns" in lower_head):
             magic_mime = "image/svg+xml"
         elif lower_head.startswith((b"<!doctype html", b"<html")):
             magic_mime = "text/html"
         elif lower_head.startswith(b"<?xml"):
             magic_mime = "application/xml"
+        elif any(sig in lower_head for sig in _SCRIPT_SIGNATURES):
+            if ext in _SAFE_DOCUMENT_TEXT_EXTENSIONS and expected_mime:
+                warnings.append(
+                    "script_keyword_warning: يحتوي الملف النصي على أوامر اسكربت/صدفة ولكن يُعالج كنص غير تنفيذي"
+                )
+                return (expected_mime, warnings)
+            magic_mime = "application/x-executable-script"
 
-    # مقارنة البصمة الثنائية بالامتداد الظاهري
     if magic_mime is not None:
         if expected_mime and expected_mime != magic_mime:
             is_office_zip = magic_mime == "application/zip" and ext in (
@@ -612,10 +667,9 @@ def scan_for_malware(
 ) -> tuple[bool, str | None]:
     """
     طبقة الفحص الأمني للبرمجيات الخبيثة (`Scan Layer` — P1):
-      1. كشف بصمة `EICAR` القياسية لاختبار مضادات الفيروسات.
+      1. كشف بصمة `EICAR` القياسية.
       2. استدعاء `av_scanner` المخصّص إن جرى تمريره.
-      3. استدعاء `clamscan` (بدون shell) إن كان مفعّلاً ومتاحاً على النظام.
-    تعيد `(is_clean, signature_name)`.
+      3. استدعاء `clamdscan` (عبر daemon سريع إن وُجد) أو `clamscan` (بدون shell).
     """
     if EICAR_SIGNATURE in head:
         return (False, "EICAR-Test-Signature")
@@ -624,10 +678,10 @@ def scan_for_malware(
         return av_scanner(path)
 
     if enable_clamav:
-        clamscan_bin = shutil.which("clamscan")
-        if clamscan_bin:
+        clam_bin = shutil.which("clamdscan") or shutil.which("clamscan")
+        if clam_bin:
             proc = subprocess.run(
-                [clamscan_bin, "--no-summary", str(path)],
+                [clam_bin, "--no-summary", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -665,7 +719,6 @@ def safe_xml_fromstring(
             )
 
     if DefusedET is not None:
-        # defusedxml يمنع توسعة الكيانات والـ DTD والـ External Entities
         DefusedET.fromstring(
             xml_bytes,
             forbid_dtd=True,
@@ -736,20 +789,20 @@ def detect_and_decode_text_with_confidence(
 
     if arabic_chars > 0 and high_bytes > 0:
         arabic_ratio = arabic_chars / max(high_bytes, 1)
-        # مرجع ثانٍ عبر charset_normalizer إن وُجد
         cn_boost = 0.0
         if cn_from_bytes is not None:
             best = cn_from_bytes(raw_bytes).best()
             if best is not None and best.encoding in ("cp1256", "windows_1256", "iso8859_6"):
                 cn_boost = 0.15
-        confidence = round(min(1.0, max(0.1, arabic_ratio * 0.85 + cn_boost - replacement_chars * 0.1)), 3)
+        confidence = round(
+            min(1.0, max(0.1, arabic_ratio * 0.85 + cn_boost - replacement_chars * 0.1)), 3
+        )
         if arabic_ratio >= 0.35:
             warnings.append(
                 f"legacy_encoding_detected: تم فك الترميز العربي عبر Windows-1256 (cp1256) بثقة {confidence}"
             )
             return (cp1256_text, "cp1256", confidence, warnings)
 
-    # إذا لم يكن نصاً عربياً متماسكاً في cp1256، نجرّب charset_normalizer أو latin-1
     if cn_from_bytes is not None:
         best = cn_from_bytes(raw_bytes).best()
         if best is not None:
@@ -787,19 +840,57 @@ def _is_safe_uri(raw_value: str) -> bool:
     return scheme in ("http", "https", "mailto")
 
 
-def _is_safe_style(raw_style: str) -> bool:
-    """يرفض `url(...)` و`expression(...)` و`javascript:` و`data:` و`-moz-binding` داخل `style`."""
-    norm = _normalize_uri_for_check(raw_style)
-    forbidden = ("url(", "expression(", "javascript:", "vbscript:", "data:", "-moz-binding", "@import")
-    return not any(marker in norm for marker in forbidden)
+def _sanitize_css_style(raw_style: str) -> tuple[str, bool]:
+    """
+    تصفية خصائص `style` عبر قائمة بيضاء للخصائص (`_ALLOWED_CSS_PROPERTIES`)
+    مع حظر `url(...)`, `expression(...)`, `javascript:`, `data:`, `@import`, وأي قوس أو محرف هروب.
+    تعيد `(clean_style, had_violation)`.
+    """
+    unescaped = html.unescape(raw_style)
+    norm = _normalize_uri_for_check(unescaped)
+    forbidden = (
+        "url(",
+        "expression(",
+        "javascript:",
+        "vbscript:",
+        "data:",
+        "-moz-binding",
+        "@import",
+        "\\",
+    )
+    if any(marker in norm for marker in forbidden):
+        return ("", True)
+
+    safe_decls: list[str] = []
+    had_violation = False
+    for decl in unescaped.split(";"):
+        decl_stripped = decl.strip()
+        if not decl_stripped:
+            continue
+        if ":" not in decl_stripped:
+            had_violation = True
+            continue
+        prop, val = decl_stripped.split(":", 1)
+        prop_clean = prop.strip().lower()
+        val_clean = val.strip()
+        if prop_clean not in _ALLOWED_CSS_PROPERTIES:
+            had_violation = True
+            continue
+        if any(bad in val_clean.lower() for bad in ("(", ")", "url", "expression", "javascript", "data", "@", "\\")):
+            had_violation = True
+            continue
+        safe_decls.append(f"{prop_clean}: {val_clean}")
+
+    return ("; ".join(safe_decls), had_violation)
 
 
 class _AllowlistSvgHtmlSanitizer(HTMLParser):
     """
-    محلّل ومُعقّم `SVG/HTML` يعتمد على القائمة البيضاء (`Allowlist Sanitizer` — P1):
-      - يحذف الوسوم غير المسموحة (`<script>`, `<foreignObject>`, `<iframe>`, `<object>`, `<style>`, `<use>`, إلخ).
+    محلّل ومُعقّم `SVG/HTML` يعتمد على القائمة البيضاء الصارمة (`Allowlist Sanitizer` — P1):
+      - يحذف الوسوم غير المسموحة ومحتواها (`<script>`, `<foreignObject>`, `<use>`, `<image>`, `<animate>`, `<set>`, `<iframe>`, `<object>`, `<style>`, إلخ).
       - يحذف أي سمة تبدأ بـ `on*` أو غير مدرجة في `_ALLOWED_SVG_HTML_ATTRS`.
       - يفك كيانات HTML (`&#106;avascript:`) قبل التحقق من الروابط (`href`, `xlink:href`, `src`).
+      - يطبّق قائمة بيضاء على خصائص CSS داخل `style`، ويضيف `rel="noopener noreferrer"` لوسوم `<a>`.
     """
 
     def __init__(self) -> None:
@@ -837,6 +928,7 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
             return
 
         safe_attrs: list[str] = []
+        has_rel = False
         for attr_name, attr_val in attrs:
             name_lower = attr_name.lower()
             val_str = attr_val or ""
@@ -851,11 +943,21 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
                     f"xss_vector_sanitized: تم حظر رابط خطير في '{name_lower}' (javascript/data/entity bypass)"
                 )
                 continue
-            if name_lower == "style" and not _is_safe_style(val_str):
-                self._warn_once("xss_vector_sanitized: تم حظر تعبير CSS خطير داخل 'style'")
-                continue
+            if name_lower == "style":
+                clean_style, style_violation = _sanitize_css_style(val_str)
+                if style_violation:
+                    self._warn_once("xss_vector_sanitized: تم تحييد خاصية أو تعبير CSS غير آمن داخل 'style'")
+                if not clean_style:
+                    continue
+                val_str = clean_style
+            if name_lower == "rel":
+                has_rel = True
+                val_str = "noopener noreferrer"
             escaped_val = html.escape(html.unescape(val_str), quote=True)
             safe_attrs.append(f'{name_lower}="{escaped_val}"')
+
+        if tag_lower == "a" and not has_rel:
+            safe_attrs.append('rel="noopener noreferrer"')
 
         attr_suffix = (" " + " ".join(safe_attrs)) if safe_attrs else ""
         self.output.append(f"<{tag_lower}{attr_suffix}>")
@@ -875,7 +977,6 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
 
     def handle_entityref(self, name: str) -> None:
         if self._skip_depth == 0:
-            # كيانات XML/HTML المعيارية فقط؛ الكيانات المخصّصة الخارجية تُحذف لمنع XXE
             if name in ("amp", "lt", "gt", "quot", "apos", "nbsp"):
                 self.output.append(f"&{name};")
             else:
@@ -887,10 +988,7 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
 
 
 def _strip_doctype_and_entities(raw_text: str) -> tuple[str, list[str]]:
-    """
-    إزالة أي مقطع `<!DOCTYPE ...>` أو `<!ENTITY ...>` قبل تمريره للمحلّل
-    بزمن خطي O(n) وبصفر Regex.
-    """
+    """إزالة أي مقطع `<!DOCTYPE ...>` أو `<!ENTITY ...>` قبل تمريره للمحلّل بزمن خطي O(n) وبصفر Regex."""
     warnings: list[str] = []
     out: list[str] = []
     i = 0
@@ -923,8 +1021,8 @@ def sanitize_svg_or_html(raw_text: str) -> tuple[str, list[str]]:
     تعقيم ملفات `SVG` و`HTML` و`XML` بقائمة بيضاء صارمة (`Allowlist Sanitizer` — P1):
       - يحذف `<!DOCTYPE` و`<!ENTITY` (`XXE`).
       - يحلّل العناصر عبر `_AllowlistSvgHtmlSanitizer` ويسمح فقط بوسوم وسمات آمنة.
-      - يكشف ويحبط محاولات الالتفاف عبر `<foreignObject>`, `xlink:href="&#106;avascript:..."`,
-        `data:` URIs، `style="background:url(javascript:...)"`، واختلاف حالة الأحرف.
+      - يكشف ويحبط محاولات الالتفاف عبر `<foreignObject>`, `<use href>`, `<image href>`,
+        `<animate>`, `<set>`, `xlink:href="&#106;avascript:..."`, `data:` URIs، و`style="background:url(...)"`.
     """
     stripped_text, pre_warnings = _strip_doctype_and_entities(raw_text)
     sanitizer = _AllowlistSvgHtmlSanitizer()
@@ -945,12 +1043,22 @@ def _safe_read_zip_entry(
 ) -> bytes:
     """
     قراءة ملف من داخل أرشيف `ZIP` بتدفق مجزّأ ومحدود الذاكرة (`Streaming Read Cap` — P0):
-      - لا يثق بـ `info.file_size` المعلن في الترويسة وحده (لأنه قابل للتزوير).
-      - يفك الضغط عبر `zlib.decompressobj(-15)` بسقف `max_length` صارم بحيث لا يخصّص
-        في الذاكرة أكثر من الميزانية المتبقية حتى لو كانت ترويسة `ZIP` مزوّرة.
-      - يطابق ترويسة `Local File Header` مع `Central Directory` ويفحص `CRC-32`.
-      - يكشف ويحظر الأرشيفات المتداخلة (`Nested Archives`) عند تفعيل `forbid_nested_archive`.
+      1. يرفض طرق الضغط غير القياسية (`bzip2`, `lzma`, `deflate64`) وحجوم `ZIP64` المفرطة.
+      2. يدعم `Data Descriptors` الشرعية في ملفات `Office / LibreOffice / Google Docs` (`lfh_uncomp == 0`)،
+         مع كشف الترويسات المزوّرة عندما تذكر `LFH` حجماً غير صفري يتعارض مع `Central Directory`.
+      3. يفك الضغط عبر `zlib.decompressobj(-15)` بسقف `max_length` صارم بحيث لا يخصّص في الذاكرة
+         أكثر من الميزانية المتبقية حتى لو كانت ترويسة `ZIP` مزوّرة.
+      4. يكشف ويحظر الأرشيفات المتداخلة (`Nested Archives`) عند تفعيل `forbid_nested_archive`.
     """
+    if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        raise ValueError(
+            f"zip_unsupported_compression_method: طريقة ضغط غير مدعومة ({info.compress_type}) في '{info.filename}' — يُسمح بـ STORED و DEFLATED فقط"
+        )
+    if info.file_size >= 0xFFFFFFFF or info.compress_size >= 0xFFFFFFFF:
+        raise ValueError(
+            f"zip_bomb_zip64_blocked: حجم ملف ZIP64 ضخم غير مسموح به في '{info.filename}'"
+        )
+
     entry_ext = Path(info.filename).suffix.lower()
     if forbid_nested_archive and entry_ext in _NESTED_ARCHIVE_EXTENSIONS:
         raise ValueError(
@@ -966,15 +1074,22 @@ def _safe_read_zip_entry(
     if len(lfh) < 30 or lfh[:4] != b"PK\x03\x04":
         raise ValueError(f"archive_corrupt_header: ترويسة محلية غير صالحة لـ '{info.filename}'")
 
-    lfh_flags, _lfh_method, _lfh_time, _lfh_date, _lfh_crc, _lfh_comp, lfh_uncomp, fn_len, extra_len = (
+    lfh_flags, lfh_method, _lfh_time, _lfh_date, _lfh_crc, lfh_comp, lfh_uncomp, fn_len, extra_len = (
         struct.unpack("<HHHHIIIHH", lfh[6:30])
     )
-    if (lfh_flags & 0x08) == 0 and (
-        lfh_uncomp not in (0xFFFFFFFF, info.file_size)
-        or _lfh_comp not in (0xFFFFFFFF, info.compress_size)
+    if lfh_method not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        raise ValueError(
+            f"zip_unsupported_compression_method: طريقة ضغط LFH غير مدعومة ({lfh_method}) في '{info.filename}'"
+        )
+
+    # دعم Data Descriptors الشرعية (Office/LibreOffice/Google Docs قد تكتب 0 في LFH وتضع الحجم في Central Directory)
+    has_data_descriptor = bool(lfh_flags & 0x08)
+    if not has_data_descriptor and (
+        lfh_uncomp not in (0, 0xFFFFFFFF, info.file_size)
+        or lfh_comp not in (0, 0xFFFFFFFF, info.compress_size)
     ):
         raise ValueError(
-            f"zip_bomb_spoofed_header: تعارض الحجم بين ترويسة LFH ({lfh_uncomp}/{_lfh_comp}) وترويسة Central Directory ({info.file_size}/{info.compress_size}) لـ '{info.filename}'"
+            f"zip_bomb_spoofed_header: تعارض الحجم بين ترويسة LFH ({lfh_uncomp}/{lfh_comp}) وترويسة Central Directory ({info.file_size}/{info.compress_size}) لـ '{info.filename}'"
         )
 
     fp.seek(info.header_offset + 30 + fn_len + extra_len)
@@ -995,7 +1110,7 @@ def _safe_read_zip_entry(
         if first_chunk:
             first_chunk = False
             if forbid_nested_archive and data.startswith(
-                (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07")
+                (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07", b"BZh")
             ):
                 raise ValueError(
                     f"zip_bomb_nested_archive: بصمة أرشيف متداخل محظور داخل '{info.filename}'"
@@ -1047,14 +1162,17 @@ def _check_zip_safety(
     *,
     verify_streams: bool = False,
     forbid_nested_archives: bool = False,
-) -> list[str]:
+    allow_ooxml_embeddings: bool = False,
+) -> tuple[list[str], list[str]]:
     """
     فحص أرشيف ZIP ضد:
-      1. Zip Bomb (تجاوز الحجم المفكوك أو نسبة الضغط أو عدد الملفات، مع فحص تدفقي فعلي ضد تزوير الترويسة).
-      2. Path Traversal (`..` أو مسار مطلق `/` أو حرف قرص `C:` داخل الأرشيف).
-      3. تجاوز عمق المجلدات (`max_directory_depth`).
-      4. الأرشيفات المتداخلة (`Nested Archives`) وماكرو `VBA` (`vbaProject.bin`).
-    يرفع `ValueError` عند وجود خطر أمني.
+      1. طرق الضغط غير القياسية (`bzip2`, `lzma`, `deflate64`).
+      2. Zip Bomb (تجاوز الحجم المفكوك أو نسبة الضغط أو عدد الملفات، مع فحص تدفقي فعلي ضد تزوير الترويسة).
+      3. Path Traversal (`..` أو مسار مطلق `/` أو حرف قرص `C:` داخل الأرشيف).
+      4. تجاوز عمق المجلدات (`max_directory_depth`).
+      5. الأرشيفات المتداخلة (`Nested Archives`) وماكرو `VBA` (`vbaProject.bin`).
+         ملاحظة: عند `allow_ooxml_embeddings=True`، يُسمح بوجود ملفات مضمّنة شرعية داخل
+         `word/embeddings/*.xlsx` أو `ppt/embeddings/*.xlsx` دون فكّها مع احتساب حجمها في السقف.
     """
     infos = zf.infolist()
     if len(infos) > limits.max_archive_entries:
@@ -1064,6 +1182,7 @@ def _check_zip_safety(
 
     total_declared = 0
     cumulative_stream = [0]
+    archive_warnings: list[str] = []
 
     for info in infos:
         normalized_name = info.filename.replace("\\", "/")
@@ -1077,6 +1196,11 @@ def _check_zip_safety(
         if len(parts) > limits.max_directory_depth:
             raise ValueError(
                 f"archive_depth_exceeded: عمق المجلدات ({len(parts)}) يتجاوز الحد ({limits.max_directory_depth})"
+            )
+
+        if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise ValueError(
+                f"zip_unsupported_compression_method: طريقة ضغط غير مدعومة ({info.compress_type}) في '{info.filename}'"
             )
 
         lower_name = normalized_name.lower()
@@ -1097,6 +1221,14 @@ def _check_zip_safety(
                 f"zip_bomb_ratio_exceeded: نسبة ضغط مريبة ({ratio:.1f}:1) في '{info.filename}'"
             )
 
+        is_ooxml_embedding = allow_ooxml_embeddings and lower_name.startswith(_OOXML_EMBEDDING_PREFIXES)
+        if is_ooxml_embedding:
+            cumulative_stream[0] += info.file_size
+            archive_warnings.append(
+                f"ooxml_embedded_object_skipped: تم تخطي فك الكائن المضمّن '{info.filename}' مع احتساب حجمه"
+            )
+            continue
+
         if verify_streams and not info.is_dir():
             _safe_read_zip_entry(
                 zf,
@@ -1106,7 +1238,7 @@ def _check_zip_safety(
                 forbid_nested_archive=forbid_nested_archives,
             )
 
-    return [info.filename for info in infos if not info.is_dir()]
+    return ([info.filename for info in infos if not info.is_dir()], archive_warnings)
 
 
 def _extract_openxml_document(
@@ -1116,10 +1248,9 @@ def _extract_openxml_document(
 ) -> tuple[str, list[list[list[str]]], dict[str, object], list[str], bool]:
     """
     استخراج النصوص والجداول من ملفات Office (`DOCX`, `XLSX`, `PPTX`) بأمان تام:
-      - يقرأ المدخلات عبر `_safe_read_zip_entry` (ضد الترويسات المزوّرة).
-      - يحلّل XML عبر `safe_xml_fromstring` (`defusedxml` + حدود العمق والعناصر).
-      - يستخرج في `XLSX`: `sharedStrings.xml` + جميع أوراق `xl/worksheets/sheet*.xml`
-        شاملةً `inlineStr` والأرقام ونتائج المعادلات (`<v>`) مع تعليم الاقتطاع كـ `partial`.
+      - يدعم `Data Descriptors` الشرعية والمضمّنات (`word/embeddings/*.xlsx`) دون إيجابيات كاذبة.
+      - يقرأ المدخلات عبر `_safe_read_zip_entry` ويحلّل XML عبر `safe_xml_fromstring`.
+      - يستخرج في `XLSX`: `sharedStrings.xml` + جميع أوراق `xl/worksheets/sheet*.xml`.
     """
     texts: list[str] = []
     tables: list[list[list[str]]] = []
@@ -1129,7 +1260,14 @@ def _extract_openxml_document(
     cumulative_bytes = [0]
 
     with zipfile.ZipFile(path, "r") as zf:
-        names = _check_zip_safety(zf, limits, verify_streams=False, forbid_nested_archives=False)
+        names, zip_warnings = _check_zip_safety(
+            zf,
+            limits,
+            verify_streams=False,
+            forbid_nested_archives=False,
+            allow_ooxml_embeddings=True,
+        )
+        extra_warnings.extend(zip_warnings)
         info_map = {info.filename: info for info in zf.infolist() if not info.is_dir()}
 
         if mime.endswith("wordprocessingml.document") and "word/document.xml" in info_map:
@@ -1256,9 +1394,13 @@ def _extract_openxml_document(
     return (" ".join(texts).strip(), tables, meta, extra_warnings, is_partial)
 
 
-def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
+def _parse_psd_image_resources(
+    res_bytes: bytes,
+    *,
+    max_blocks: int = 256,
+) -> tuple[list[str], bool]:
     """
-    قراءة قسم `Image Resources` (`8BIM` blocks) في ملفات `PSD` (إصلاح P2):
+    قراءة قسم `Image Resources` (`8BIM` blocks) في ملفات `PSD` مع سقف لعدد البنود وفحص صارم للحدود:
       - `0x03EE` (1006): أسماء قنوات Alpha/Spot بصيغة Pascal strings.
       - `0x0415` (1045): أسماء قنوات Alpha/Spot بصيغة Unicode (`UTF-16BE`).
       - `0x0435` (1077) و `0x03EF` (1007): هياكل `DisplayInfo` لقنوات Spot/Alpha.
@@ -1268,13 +1410,18 @@ def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
     has_spot_display_info = False
     offset = 0
     total = len(res_bytes)
+    blocks_seen = 0
 
     while offset + 12 <= total:
+        if blocks_seen >= max_blocks:
+            raise ValueError(
+                f"psd_resources_limit_exceeded: عدد بلوكات 8BIM يتجاوز الحد ({max_blocks})"
+            )
         if res_bytes[offset : offset + 4] != b"8BIM":
             break
+        blocks_seen += 1
         res_id = struct.unpack(">H", res_bytes[offset + 4 : offset + 6])[0]
         pascal_len = res_bytes[offset + 6]
-        # Pascal string (1 byte length + chars) مبطّن لعدد زوجي من البايتات
         name_field_size = 1 + pascal_len
         if name_field_size % 2 == 1:
             name_field_size += 1
@@ -1288,9 +1435,9 @@ def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
             break
         block_data = res_bytes[data_start:data_end]
 
-        if res_id == 0x03EE:  # 1006: Alpha/Spot channel names (Pascal strings)
+        if res_id == 0x03EE:
             p = 0
-            while p < len(block_data):
+            while p < len(block_data) and len(channel_names) < 64:
                 slen = block_data[p]
                 p += 1
                 if p + slen <= len(block_data) and slen > 0:
@@ -1298,11 +1445,13 @@ def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
                     if cname:
                         channel_names.append(cname)
                 p += slen
-        elif res_id == 0x0415:  # 1045: Unicode Alpha/Spot channel names
+        elif res_id == 0x0415:
             p = 0
-            while p + 4 <= len(block_data):
+            while p + 4 <= len(block_data) and len(unicode_names) < 64:
                 u_len = struct.unpack(">I", block_data[p : p + 4])[0]
                 p += 4
+                if u_len > 256:
+                    break
                 byte_count = u_len * 2
                 if p + byte_count <= len(block_data) and u_len > 0:
                     uname = (
@@ -1314,10 +1463,9 @@ def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
                     if uname:
                         unicode_names.append(uname)
                 p += byte_count
-        elif res_id in (0x0435, 0x03EF):  # DisplayInfo structures
+        elif res_id in (0x0435, 0x03EF):
             has_spot_display_info = True
 
-        # حجم البيانات مبطّن لعدد زوجي
         padded_data_len = data_len + (1 if data_len % 2 == 1 else 0)
         offset = data_start + padded_data_len
 
@@ -1325,13 +1473,15 @@ def _parse_psd_image_resources(res_bytes: bytes) -> tuple[list[str], bool]:
     return (final_names, has_spot_display_info or bool(final_names))
 
 
-def _extract_psd_header(path: Path) -> dict[str, object]:
+def _extract_psd_header(
+    path: Path,
+    *,
+    limits: IngestionLimits | None = None,
+) -> dict[str, object]:
     """
-    قراءة ترويسة ملف فوتوشوب الثنائية (`PSD` — `8BPS`) وقسم `Image Resources` (إصلاح P2):
-      - يميّز بين عدد القنوات الكلي (`channels`)، القنوات اللونية الأساسية (`base_channels`)،
-        والقنوات الإضافية (`extra_channels`: Alpha / Spot).
-      - يستخرج أسماء القنوات الإضافية وألوان الـ Spot من `Image Resources` (`0x03EE` / `0x0415` / `0x0435`).
+    قراءة ترويسة ملف فوتوشوب الثنائية (`PSD` — `8BPS`) وقسم `Image Resources` بسقوف صارمة.
     """
+    active = limits or IngestionLimits()
     with path.open("rb") as f:
         header = f.read(26)
         if len(header) < 26 or header[:4] != b"8BPS":
@@ -1339,23 +1489,28 @@ def _extract_psd_header(path: Path) -> dict[str, object]:
         version, _reserved, channels, height, width, depth, color_mode_code = struct.unpack(
             ">H6sHIIHH", header[4:26]
         )
-        if width == 0 or height == 0 or channels == 0 or version not in (1, 2):
+        if width == 0 or height == 0 or channels == 0 or channels > 56 or version not in (1, 2):
             raise ValueError("ترويسة PSD تالفة أو مقطوعة")
 
-        # تخطّي Color Mode Data Section لقراءة Image Resources Section
         channel_names: list[str] = []
         has_spot_resources = False
         color_len_bytes = f.read(4)
         if len(color_len_bytes) == 4:
             color_mode_len = struct.unpack(">I", color_len_bytes)[0]
-            if color_mode_len <= 1024 * 1024:
+            if color_mode_len <= active.max_psd_resource_bytes:
                 f.seek(color_mode_len, io.SEEK_CUR)
                 res_len_bytes = f.read(4)
                 if len(res_len_bytes) == 4:
                     res_len = struct.unpack(">I", res_len_bytes)[0]
-                    if 0 < res_len <= 4 * 1024 * 1024:
+                    if res_len > active.max_psd_resource_bytes:
+                        raise ValueError(
+                            f"psd_resources_limit_exceeded: حجم قسم موارد PSD ({res_len}) يتجاوز السقف ({active.max_psd_resource_bytes})"
+                        )
+                    if res_len > 0:
                         res_bytes = f.read(res_len)
-                        channel_names, has_spot_resources = _parse_psd_image_resources(res_bytes)
+                        channel_names, has_spot_resources = _parse_psd_image_resources(
+                            res_bytes, max_blocks=active.max_psd_resource_blocks
+                        )
 
     color_modes = {
         0: "Bitmap",
@@ -1396,6 +1551,31 @@ def _extract_psd_header(path: Path) -> dict[str, object]:
     }
 
 
+def _apply_worker_rlimits(max_memory_mb: int, timeout_seconds: float) -> None:
+    """فرض سقوف الموارد (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) داخل العملية الفرعية المعزولة."""
+    try:
+        import resource
+
+        cpu_sec = max(1, int(timeout_seconds) + 2)
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_sec, cpu_sec))
+        # على أنظمة 64-bit يحجز مفسّر Python ومكتبات C مساحة عناوين افتراضية؛ نضع سقفاً يمنع القنابل دون كسر المفسّر
+        mem_bytes = max(1024, max_memory_mb) * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("تعذّر تطبيق بعض حدود rlimit في هذه البيئة: %s", exc)
+
+
+def _disable_worker_network() -> None:
+    """منع فتح أي مقبس شبكة (`socket`) داخل العملية الفرعية المعزولة للمحلّل."""
+
+    def _blocked_socket(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError("network_disabled_in_ingestion_sandbox: الشبكة معطّلة داخل صندوق الاستيعاب")
+
+    socket.socket = _blocked_socket  # type: ignore[misc,assignment]
+    socket.create_connection = _blocked_socket  # type: ignore[assignment]
+
+
 def ingest_file_isolated(
     file_path: str | Path,
     *,
@@ -1404,15 +1584,17 @@ def ingest_file_isolated(
     timeout_seconds: float | None = None,
 ) -> IngestionResult:
     """
-    تشغيل استيعاب الملف داخل عملية فرعية معزولة (`Subprocess Sandbox Isolation` — P0):
-      - يعمل بلا صدفة (`shell=False`) وببيئة نظيفة وسقف زمني صارم (`timeout_seconds`).
-      - إذا تجاوز المحلّل المهلة أو انهار بسبب ملف هجومي، لا يتأثر الخادم الرئيسي ويعيد
-        `IngestionResult` آمناً بحالة `blocked` أو `metadata_only`.
+    تشغيل استيعاب الملف داخل عملية فرعية معزولة (`Hardened Subprocess Sandbox` — P0):
+      1. يعمل بلا صدفة (`shell=False`)، وفي مجلد عمل مؤقت فارغ ومعزول (`tempfile.TemporaryDirectory`).
+      2. يعمل في مجموعة عمليات مستقلة (`start_new_session=True`)؛ وعند انتهاء المهلة يُقتل
+         كامل شجرة العمليات عبر `os.killpg(proc.pid, signal.SIGKILL)`.
+      3. يطبّق العامل حدود الذاكرة والـ CPU (`resource.setrlimit`) ويعطّل الشبكة (`_disable_worker_network`).
+      4. قناة إرجاع النتيجة: **JSON فقط (صفر pickle)** وبسقف حجم `MAX_WORKER_STDOUT_BYTES`.
     """
     active_limits = limits or IngestionLimits()
     raw_path = Path(file_path)
     root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
-    safe_path = guard_path(raw_path, allowed_roots=(root,))
+    safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
     clean_name = sanitize_filename(safe_path.name)
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
     mime, warnings = detect_magic_mime(head, clean_name)
@@ -1424,50 +1606,76 @@ def ingest_file_isolated(
     worker_limits = asdict(active_limits)
     worker_limits["isolate_in_subprocess"] = False
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "src.ingestion.pipeline",
-        "--worker-file",
-        str(safe_path),
-        "--worker-root",
-        str(root),
-        "--worker-limits",
-        json.dumps(worker_limits),
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=effective_timeout,
-            check=False,
-            env={"PYTHONPATH": repo_root, "PATH": ""},
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            payload = json.loads(proc.stdout.strip().splitlines()[-1])
-            return IngestionResult.from_dict(payload)
-        warnings.append(
-            f"parser_subprocess_failed: انتهت العملية الفرعية برمز ({proc.returncode})"
-        )
-    except subprocess.TimeoutExpired:
-        warnings.append(
-            f"parser_subprocess_timeout: تجاوز المحلّل المهلة الزمنية ({effective_timeout}s) في العملية المعزولة"
-        )
-        return IngestionResult(
-            id=file_id,
-            name=clean_name,
-            mime=mime,
-            size=size_bytes,
-            status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
-            parser="isolated_subprocess_guard",
-            language=None,
-            text="",
-            metadata={"author": None, "created": None, "blocked_reason": "parser_subprocess_timeout"},
-            warnings=warnings,
-        )
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"parser_subprocess_error: {type(exc).__name__}: {exc}")
+    with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as isolated_cwd:
+        cmd_clean = [
+            sys.executable,
+            "-m",
+            "src.ingestion.pipeline",
+            "--worker-file",
+            str(safe_path),
+            "--worker-root",
+            str(root),
+            "--worker-limits",
+            json.dumps(worker_limits),
+        ]
+        proc: subprocess.Popen[str] | None = None
+        try:
+            proc = subprocess.Popen(
+                cmd_clean,
+                cwd=isolated_cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+                env={
+                    "PYTHONPATH": repo_root,
+                    "PATH": "",
+                    "HOME": isolated_cwd,
+                    "TMPDIR": isolated_cwd,
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
+            stdout_data, _stderr_data = proc.communicate(timeout=effective_timeout)
+            if len(stdout_data) > MAX_WORKER_STDOUT_BYTES:
+                raise ValueError("worker_stdout_exceeded: مخرجات العملية الفرعية تجاوزت السقف المسموح")
+            if proc.returncode == 0 and stdout_data.strip():
+                payload = json.loads(stdout_data.strip().splitlines()[-1])
+                return IngestionResult.from_dict(payload)
+            warnings.append(
+                f"parser_subprocess_failed: انتهت العملية الفرعية برمز ({proc.returncode})"
+            )
+        except subprocess.TimeoutExpired:
+            if proc is not None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError as kill_exc:
+                    logger.debug("تعذّر killpg على العملية الفرعية (%s) — استخدام proc.kill()", kill_exc)
+                    proc.kill()
+                proc.wait(timeout=2)
+            warnings.append(
+                f"parser_subprocess_timeout: تجاوز المحلّل المهلة الزمنية ({effective_timeout}s) في العملية المعزولة وتم قتل مجموعة العمليات"
+            )
+            return IngestionResult(
+                id=file_id,
+                name=clean_name,
+                mime=mime,
+                size=size_bytes,
+                status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
+                parser="isolated_subprocess_guard",
+                language=None,
+                text="",
+                metadata={"author": None, "created": None, "blocked_reason": "parser_subprocess_timeout"},
+                warnings=warnings,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if proc is not None and proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError as kill_exc:
+                    logger.debug("تعذّر killpg عند تنظيف العملية الفرعية (%s) — استخدام proc.kill()", kill_exc)
+                    proc.kill()
+            warnings.append(f"parser_subprocess_error: {type(exc).__name__}: {exc}")
 
     return IngestionResult(
         id=file_id,
@@ -1504,7 +1712,7 @@ def ingest_file(
 
     raw_path = Path(file_path)
     root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
-    safe_path = guard_path(raw_path, allowed_roots=(root,))
+    safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
     clean_name = sanitize_filename(safe_path.name)
 
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
@@ -1575,7 +1783,7 @@ def ingest_file(
     # 4. فحص ملفات OLE2 القديمة (.doc / .xls / .ppt) ضد ماكرو VBA
     if mime == "application/x-ole-storage":
         raw_ole = safe_path.read_bytes()
-        if b"_VBA_PROJECT" in raw_ole or b"VBA" in raw_ole and b"Macros" in raw_ole:
+        if b"_VBA_PROJECT" in raw_ole or (b"VBA" in raw_ole and b"Macros" in raw_ole):
             warnings.append("macro_detected_blocked: تم رصد وحظر ماكرو VBA داخل مستند OLE2 قديم")
             return IngestionResult(
                 id=file_id,
@@ -1646,7 +1854,6 @@ def ingest_file(
                 meta["json_type"] = type(parsed_json).__name__
             elif mime in ("image/svg+xml", "text/html", "application/xml"):
                 if mime == "application/xml":
-                    # فحص XML الصارم ضد Billion Laughs / XXE
                     safe_xml_fromstring(raw_bytes, limits=active_limits)
                 parser_name = "svg_html_allowlist_sanitizer"
                 decoded_text, san_warnings = sanitize_svg_or_html(decoded_text)
@@ -1771,12 +1978,14 @@ def ingest_file(
         # ---- (د) أرشيفات ZIP مع فحص تدفقي ضد الترويسات المزوّرة والأرشيفات المتداخلة ----
         if mime == "application/zip":
             with zipfile.ZipFile(safe_path, "r") as zf:
-                entries = _check_zip_safety(
+                entries, zip_warns = _check_zip_safety(
                     zf,
                     active_limits,
                     verify_streams=True,
                     forbid_nested_archives=True,
+                    allow_ooxml_embeddings=False,
                 )
+                warnings.extend(zip_warns)
             return IngestionResult(
                 id=file_id,
                 name=clean_name,
@@ -1797,7 +2006,7 @@ def ingest_file(
 
         # ---- (هـ) ملفات التصميم للمطابع: PSD (فوتوشوب) مع Image Resources ----
         if mime == "image/vnd.adobe.photoshop":
-            psd_meta = _extract_psd_header(safe_path)
+            psd_meta = _extract_psd_header(safe_path, limits=active_limits)
             return IngestionResult(
                 id=file_id,
                 name=clean_name,
@@ -1898,10 +2107,12 @@ def ingest_file(
         if err_msg.startswith(
             (
                 "zip_bomb_",
+                "zip_unsupported_",
                 "archive_",
                 "macro_detected_blocked",
                 "xml_bomb_",
                 "image_decompression_bomb_blocked",
+                "psd_resources_limit_exceeded",
             )
         ):
             warnings.append(err_msg)
@@ -1947,10 +2158,11 @@ def ingest_file(
 
 class IngestionPipeline:
     """
-    مدير خط أنابيب الاستيعاب مع:
+    مدير خط أنابيب الاستيعاب الإنتاجي مع:
+      - تفعيل العزل في عملية فرعية افتراضياً (`isolate_in_subprocess=True` — P0).
       - منع تكرار المعالجة (`Idempotency`) بمفتاح مركّب يعزل المستأجرين والإصدار والحدود:
         `tenant_id + PIPELINE_VERSION + limits.fingerprint() + sha256` (إصلاح P1).
-      - قياس نسبة الاستخراج الناجح لكل نوع `MIME` (`extraction_metrics()`).
+      - سياسة احتفاظ للكاش (`cache_ttl_seconds` + `max_cache_entries` + `clear_tenant_cache`).
     """
 
     def __init__(
@@ -1958,37 +2170,64 @@ class IngestionPipeline:
         *,
         limits: IngestionLimits | None = None,
         av_scanner: AvScannerCallable | None = None,
+        isolate_in_subprocess: bool = True,
+        cache_ttl_seconds: float = 3600.0,
+        max_cache_entries: int = 256,
     ) -> None:
-        self._limits = limits or IngestionLimits()
+        base_limits = limits or IngestionLimits(isolate_in_subprocess=isolate_in_subprocess)
+        self._limits = base_limits
         self._av_scanner = av_scanner
-        self._cache: dict[str, IngestionResult] = {}
+        self._cache_ttl_seconds = cache_ttl_seconds
+        self._max_cache_entries = max_cache_entries
+        self._cache: dict[str, tuple[float, IngestionResult]] = {}
         self._stats_by_mime: dict[str, dict[str, int]] = {}
 
-    def cache_key_for(self, file_id: str, *, tenant_id: str = "default") -> str:
-        """بناء مفتاح الـ Cache المركّب (`tenant + PIPELINE_VERSION + limits + sha256`)."""
-        clean_tenant = tenant_id.strip() or "default"
+    def cache_key_for(self, file_id: str, *, tenant_id: str = "default_single_tenant") -> str:
+        """بناء مفتاح الـ Cache المركّب مع التحقق الصارم من صلاحية `tenant_id`."""
+        clean_tenant = tenant_id.strip()
+        if not clean_tenant or ":" in clean_tenant:
+            raise ValueError("invalid_tenant_id: يجب تمرير معرف مستأجر صالح وغير فارغ لعزل الكاش")
         return f"{clean_tenant}:{PIPELINE_VERSION}:{self._limits.fingerprint()}:{file_id}"
+
+    def clear_tenant_cache(self, tenant_id: str) -> int:
+        """حذف جميع عناصر الكاش الخاصة بمستأجر معيّن (امتثال حق المحو — قانون 151/2020 و GDPR)."""
+        prefix = f"{tenant_id.strip()}:"
+        keys_to_delete = [k for k in self._cache if k.startswith(prefix)]
+        for k in keys_to_delete:
+            del self._cache[k]
+        return len(keys_to_delete)
+
+    def purge_expired_cache(self, now: float | None = None) -> int:
+        """حذف العناصر المنتهية الصلاحية حسب `cache_ttl_seconds`."""
+        current = now if now is not None else time.monotonic()
+        expired = [
+            k
+            for k, (ts, _res) in self._cache.items()
+            if (current - ts) > self._cache_ttl_seconds
+        ]
+        for k in expired:
+            del self._cache[k]
+        return len(expired)
 
     def process(
         self,
         file_path: str | Path,
         *,
         allowed_root: str | Path | None = None,
-        tenant_id: str = "default",
+        tenant_id: str = "default_single_tenant",
     ) -> tuple[IngestionResult, bool]:
         """
         يعالج الملف ويعيد `(IngestionResult, from_cache)`.
-        مفتاح الـ Cache يربط `tenant_id` و`PIPELINE_VERSION` و`limits` ببصمة `sha256:`
-        لمنع تسرب النتائج بين المستأجرين أو إرجاع نتائج قديمة بعد تحديث المحلّل.
         """
+        self.purge_expired_cache()
         raw_path = Path(file_path)
         root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
-        safe_path = guard_path(raw_path, allowed_roots=(root,))
+        safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
         file_id, _, _ = _stream_sha256_and_head(safe_path)
         cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
 
         if cache_key in self._cache:
-            return (self._cache[cache_key], True)
+            return (self._cache[cache_key][1], True)
 
         result = ingest_file(
             safe_path,
@@ -1996,7 +2235,10 @@ class IngestionPipeline:
             limits=self._limits,
             av_scanner=self._av_scanner,
         )
-        self._cache[cache_key] = result
+        if len(self._cache) >= self._max_cache_entries:
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+        self._cache[cache_key] = (time.monotonic(), result)
 
         bucket = self._stats_by_mime.setdefault(
             result.mime,
@@ -2019,7 +2261,7 @@ class IngestionPipeline:
         return report
 
 
-def _cli_worker_main(argv: list[str]) -> int:
+def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
     """نقطة دخول العامل الفرعي المعزول (`ingest_file_isolated`)."""
     import argparse
 
@@ -2032,10 +2274,15 @@ def _cli_worker_main(argv: list[str]) -> int:
     limits_dict = json.loads(args.worker_limits)
     limits_dict["isolate_in_subprocess"] = False
     limits = IngestionLimits(**limits_dict)
+
+    if apply_os_sandbox:
+        _apply_worker_rlimits(limits.worker_max_memory_mb, limits.parser_timeout_seconds)
+        _disable_worker_network()
+
     res = ingest_file(args.worker_file, allowed_root=args.worker_root, limits=limits)
     print(json.dumps(res.to_dict(), ensure_ascii=False))
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(_cli_worker_main(sys.argv[1:]))
+    raise SystemExit(_cli_worker_main(sys.argv[1:], apply_os_sandbox=True))
