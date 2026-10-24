@@ -28,11 +28,11 @@ def test_signin_sends_public_key_and_does_not_log_password(monkeypatch) -> None:
         return httpx.Response(200, json={"access_token": "access", "user": {"id": "u1"}})
 
     monkeypatch.setattr(httpx, "request", fake_request)
-    result = make_client().sign_in(" person@example.test ", "secret-pass")
+    result = make_client().sign_in(" sample-user [at] invalid [dot] test ", "secret-pass")
     assert result["access_token"] == "access"
     assert captured["url"].endswith("/auth/v1/token?grant_type=password")
     assert captured["headers"]["apikey"] == "public-anon-key"
-    assert captured["json"] == {"email": "person@example.test", "password": "secret-pass"}
+    assert captured["json"] == {"email": "sample-user [at] invalid [dot] test", "password": "secret-pass"}
 
 
 def test_push_uses_user_jwt_and_user_scoped_upsert(monkeypatch) -> None:
@@ -55,7 +55,7 @@ def test_http_failure_is_sanitized(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "request", fake_request)
     with pytest.raises(CloudSyncError) as err:
-        make_client().sign_in("person@example.test", "secret-pass")
+        make_client().sign_in("sample-user [at] invalid [dot] test", "secret-pass")
     assert "private auth details" not in str(err.value)
     assert "secret-pass" not in str(err.value)
 
