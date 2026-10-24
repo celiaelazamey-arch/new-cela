@@ -1552,13 +1552,17 @@ def _extract_psd_header(
 
 
 def _apply_worker_rlimits(max_memory_mb: int, timeout_seconds: float) -> None:
-    """فرض سقوف الموارد (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) داخل العملية الفرعية المعزولة."""
+    """
+    فرض سقوف الموارد (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) داخل العملية الفرعية المعزولة فقط.
+    لا يُنفَّذ أبداً في العملية الرئيسية (`CELA_INGEST_WORKER != "1"`) لمنع تقييد الخادم أو مشغّل الاختبارات.
+    """
+    if os.environ.get("CELA_INGEST_WORKER") != "1":
+        return
     try:
         import resource
 
         cpu_sec = max(1, int(timeout_seconds) + 2)
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_sec, cpu_sec))
-        # على أنظمة 64-bit يحجز مفسّر Python ومكتبات C مساحة عناوين افتراضية؛ نضع سقفاً يمنع القنابل دون كسر المفسّر
         mem_bytes = max(1024, max_memory_mb) * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
@@ -1634,6 +1638,7 @@ def ingest_file_isolated(
                     "HOME": isolated_cwd,
                     "TMPDIR": isolated_cwd,
                     "PYTHONDONTWRITEBYTECODE": "1",
+                    "CELA_INGEST_WORKER": "1",
                 },
             )
             stdout_data, _stderr_data = proc.communicate(timeout=effective_timeout)
@@ -1652,7 +1657,7 @@ def ingest_file_isolated(
                 except OSError as kill_exc:
                     logger.debug("تعذّر killpg على العملية الفرعية (%s) — استخدام proc.kill()", kill_exc)
                     proc.kill()
-                proc.wait(timeout=2)
+                proc.communicate()
             warnings.append(
                 f"parser_subprocess_timeout: تجاوز المحلّل المهلة الزمنية ({effective_timeout}s) في العملية المعزولة وتم قتل مجموعة العمليات"
             )

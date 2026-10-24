@@ -26,7 +26,6 @@ from src.ingestion import (
 )
 from src.ingestion.pipeline import (
     EICAR_SIGNATURE,
-    _apply_worker_rlimits,
     _cli_worker_main,
     _disable_worker_network,
     detect_magic_mime,
@@ -583,7 +582,6 @@ def test_archive_limits_pptx_psd_pascal_and_cache_expiration(tmp_path: Path) -> 
     pipeline.process(low_png, allowed_root=tmp_path, tenant_id="t1")
     assert pipeline.purge_expired_cache(now=1e12) == 1
     assert "image/png" in pipeline.extraction_metrics()
-    _apply_worker_rlimits(2048, 10.0)
 
     # 6. اختبار تعارض الامتداد، الحدود الدقيقة للحجم، UTF-16، OLE2 النظيف، والـ Fallback للملفات التالفة
     fake_pdf = tmp_path / "fake.pdf"
