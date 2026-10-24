@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -156,6 +158,18 @@ class FilmArchiveStore:
                 logger.warning("تخطي سطر تالف في أرشيف الأفلام (%d): %s", line_no, exc)
         return records
 
+    def delete_film_set(self, film_id: str) -> bool:
+        """حذف بطاقة فيلم محلية حسب المعرّف؛ تعيد False إن لم يوجد سجل مطابق."""
+        clean_id = film_id.strip()
+        if not clean_id:
+            return False
+        records = self.list_all()
+        remaining = [record for record in records if record.film_id != clean_id]
+        if len(remaining) == len(records):
+            return False
+        self._write_all(remaining)
+        return True
+
     def search(self, query: str) -> list[FilmSetRecord]:
         """
         بحث نصي ذكي في الأرشيف (رقم الفيلم، اسم التصميم، العميل، نوع القطعة، الألوان، مكان الحفظ، الملاحظات).
@@ -183,7 +197,31 @@ class FilmArchiveStore:
     def _write_all(self, records: list[FilmSetRecord]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         lines = [json.dumps(r.to_dict(), ensure_ascii=False) for r in records]
-        self._path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        content = "\n".join(lines) + ("\n" if lines else "")
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self._path.parent,
+                prefix=f".{self._path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if os.name != "nt":
+                temp_path.chmod(0o600)
+            os.replace(temp_path, self._path)
+        except OSError:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError as cleanup_error:
+                    logger.warning("تعذر تنظيف ملف الأرشيف المؤقت %s: %s", temp_path, cleanup_error)
+            raise
 
 
 @dataclass(frozen=True)
@@ -231,34 +269,46 @@ def inspect_film_image(
     with Image.open(safe_path) as img:
         gray = img.convert("L")
         width, height = gray.size
-        pixels = list(gray.tobytes())
+        pixels = gray.tobytes()
 
     total_pixels = max(len(pixels), 1)
-    # البكسلات الداكنة (< 128) تمثّل مناطق الرسم (البوزيتيف الأسود على الفيلم)
-    dark_pixels = [p for p in pixels if p < 128]
-    ink_coverage_pct = (len(dark_pixels) / total_pixels) * 100.0
+    # احسب مباشرة من bytes بدلاً من إنشاء قائمتين ضخمتين بحجم الصورة.
+    dark_count = 0
+    dark_value_sum = 0
+    for value in pixels:
+        if value < 128:
+            dark_count += 1
+            dark_value_sum += value
+    ink_coverage_pct = (dark_count / total_pixels) * 100.0
 
-    if dark_pixels:
+    if dark_count:
         # كلما اقتربت قيمة البكسل من 0 زادت عتامة السواد (100% = أسود فاحم مثالي لحجب الضوء)
-        mean_dark_val = sum(dark_pixels) / len(dark_pixels)
+        mean_dark_val = dark_value_sum / dark_count
         black_density_pct = max(0.0, min(100.0, ((255.0 - mean_dark_val) / 255.0) * 100.0))
     else:
         black_density_pct = 0.0
 
-    # فحص الحافة الخارجية (أول وآخر سطرين/عمودين) لاكتشاف التصاق التصميم بحافة الفيلم
+    # افحص فقط محيط الصورة؛ لا تمرّ على كل البكسلات لاستخراج حدوده.
     border_dark = 0
     border_total = 0
-    for y in range(height):
-        for x in range(width):
-            if x == 0 or x == width - 1 or y == 0 or y == height - 1:
+    if width and height:
+        edge_rows = (0,) if height == 1 else (0, height - 1)
+        for y in edge_rows:
+            for x in range(width):
+                border_total += 1
+                if pixels[y * width + x] < 64:
+                    border_dark += 1
+        edge_columns = (0,) if width == 1 else (0, width - 1)
+        for y in range(1, height - 1):
+            for x in edge_columns:
                 border_total += 1
                 if pixels[y * width + x] < 64:
                     border_dark += 1
 
-    border_dark_ratio = (border_dark / max(border_total, 1))
+    border_dark_ratio = border_dark / max(border_total, 1)
     has_margin = border_dark_ratio < 0.15
 
-    if not dark_pixels or black_density_pct < 75.0:
+    if not dark_count or black_density_pct < 75.0:
         status = FilmQCStatus.WARN_LOW_DENSITY
         advice = (
             f"⚠️ كثافة سواد الفيلم ({black_density_pct:.1f}%) ضعيفة — قد تتسرّب إضاءة الكشاف أثناء "

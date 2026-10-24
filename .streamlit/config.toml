@@ -1,0 +1,7 @@
+[server]
+# Cap uploads at the local MVP's declared 25 MiB limit before app-level checks.
+maxUploadSize = 25
+enableCORS = true
+enableXsrfProtection = true
+corsAllowedOrigins = ["http://localhost:8501", "http://127.0.0.1:8501"]
+allowedHosts = ["localhost", "127.0.0.1"]

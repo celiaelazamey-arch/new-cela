@@ -65,6 +65,11 @@ def test_film_archive_store_add_list_and_arabic_search(tmp_path: Path) -> None:
     assert len(store.search("أرضية بيضاء")) == 1
     assert len(store.search("")) == 2
 
+    assert store.delete_film_set("FLM-2026-001") is True
+    assert store.search("نسر ذهبي") == []
+    assert store.delete_film_set("FLM-2026-001") is False
+    assert len(store.list_all()) == 1
+
 
 def test_inspect_film_image_ready_low_density_and_edge_bleed(tmp_path: Path) -> None:
     """اختبار الفحص الفني لصورة فيلم السلك سكرين (كثافة السواد، التغطية، وهامش الصليبة)."""
