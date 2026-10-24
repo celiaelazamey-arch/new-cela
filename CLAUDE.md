@@ -2,7 +2,7 @@
 
 > **هذا الملف ليس تفضيلات. هو سياسات ملزمة تفرضها بوابات آلية في CI.**
 > اقرأه **أولاً** قبل توليد أي كود. مصدر الحقيقة التاريخي:
-> [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md). آخر تحديث: 2026-10-23.
+> [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md). آخر تحديث: 2026-10-24.
 
 ---
 
@@ -22,8 +22,8 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| **البرانش الوحيد المسموح** | `arena/1756fb0e-new-cela` |
-| بوابة الدفع | `origin arena/1756fb0e-new-cela` فقط |
+| **البرانش الوحيد المسموح** | `arena/eef426e3-new-cela` |
+| بوابة الدفع | `origin arena/eef426e3-new-cela` فقط |
 
 - ❌ **يُمنع** إنشاء/تحويل/الدفع إلى أي برانش آخر.
 - ❌ **يُمنع** `git push --force` أو حذف branches.
@@ -44,6 +44,7 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | توجيه القدرات | `src/core/model_api.py` | `ModelRouter` protocol: `available()` + `complete()` |
 | السياسة | `src/core/policy.py` | **رفض افتراضي**؛ `DEFAULT_SCOPES = {fs.read}` |
 | الحصص | `src/core/quota.py` | `TrustLevel.PAID` ممنوع في الوضع صفري التكلفة |
+| الخطط والتسعير | `src/core/pricing.py` | `PlanTier` · `PLAN_CATALOG` · `evaluate_usage_alert` (80%) · `calculate_unit_economics` |
 | التنفيذ | `src/execution/sandbox.py` | `create_subprocess_exec` **بلا shell** + timeout |
 | الذاكرة | `src/core/memory.py` | JSONL append-only، خارج git |
 

@@ -24,10 +24,10 @@
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| البرانش الإلزامي | `arena/1756fb0e-new-cela` |
-| نقطة الأساس | `9dc094e6863f2f65ce5a49cb35a7c881b04c5288` (من `main`) |
+| البرانش الإلزامي | `arena/eef426e3-new-cela` |
+| نقطة الأساس | `6d5f9ae160a2175e4a8a158ca012a78774833814` (من `main` بعد دمج PR #8) |
 | الـ remote | `https://github.com/celiaelazamey-arch/new-cela.git` |
-| بوابات الدفع المسموحة | `origin arena/1756fb0e-new-cela` فقط |
+| بوابات الدفع المسموحة | `origin arena/eef426e3-new-cela` فقط |
 
 > ⚠️ **لا تُنشئ ولا تحوّل ولا تدفع إلى أي برانش آخر.** الجلسة مرتبطة بهذا الاسم.
 
@@ -39,21 +39,21 @@
 cd /home/user/new-cela
 
 # 1) تأكد أنك على البرانش الصحيح
-git branch --show-current          # يجب أن يطبع: arena/1756fb0e-new-cela
+git branch --show-current          # يجب أن يطبع: arena/eef426e3-new-cela
 
 # 2) اجمع كل التغييرات واحفظها
 git add -A
 git commit -m "وصف واضح لما تم إنجازه"
 
 # 3) ادفع مع تثبيت التتبع (يُذكر مرة واحدة، ويعمل بعدها `git push` وحده)
-git push -u origin arena/1756fb0e-new-cela
+git push -u origin arena/eef426e3-new-cela
 
 # 4) حدّث جدول الحالة في هذا الملف، ثم أعد الخطوات 2-3
 
 # 5) تحقق نهائي
 git status --porcelain                      # يجب أن يكون فارغاً
-git ls-remote --heads origin arena/1756fb0e-new-cela   # يجب أن يطابق HEAD المحلي
-gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
+git ls-remote --heads origin arena/eef426e3-new-cela   # يجب أن يطابق HEAD المحلي
+gh run list --branch arena/eef426e3-new-cela --limit 3 # بوابة الجودة
 ```
 
 **قاعدة ذهبية:** التغيير غير المدفوع = تغيير مفقود. لا تعتمد على حفظ المساحة المحلية وحدها.
@@ -91,14 +91,16 @@ gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
 | 8 | زرع **أنماط فشل وكلاء الترميز** (12 بنداً) + **`CLAUDE.md`** + فرض القواعد آلياً | ✅ **منفّذة** | `CLAUDE.md` ✅ · 3 حواجز + pre-commit ✅ · **399 pytest ✅** · CI ✅ (16 خطوة) | `f952cba` |
 | 9 | مقارنة منصات CI/CD المجانية + **التحقق من التعارضات** + تطبيق تحسينات الأمان | ✅ **منفّذة — بانتظار تأكيد المستخدم** | تعارض self-hosted محسوم · **12 SHA مثبّتة** · CodeQL + SBOM + coverage ✅ · **403 pytest ✅** · CI ✅ (19 خطوة + CodeQL) | `22ca954` |
 | 10 | **دمج PR #7** في `main` (تفويض صريح) | ✅ **مُنفّذة** | `gh pr merge 7 --merge` · merge commit `c2239de` · CI على main ✅ | `c2239de` |
-| 11 | **إغلاق تنبيهات CodeQL الأربعة** على `main` (3 High + 1 Medium) | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | حاجز مركزي `path_guard.py` · **434 pytest ✅** · **31 اختباراً هجومياً** · ruff ✅ · كل الحواجز ✅ · إصلاح `paths` مُعاد تطبيقه | هذا الـ commit |
+| 11 | **إغلاق تنبيهات CodeQL الأربعة** على `main` (3 High + 1 Medium) + **دمج PR #8** | ✅ **مُنفّذة ومُدمجة في `main`** | حاجز `path_guard.py` · **449 pytest ✅** · فحوص PR #8 خضراء · دمج `6d5f9ae` | `6d5f9ae` |
+| 12 | **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | `docs/monetization-plan.md` · `src/core/pricing.py` · `--plans`/`--plan` · **459 pytest ✅** · كل الحواجز وCI ✅ | هذا الـ commit |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 11 — إغلاق تنبيهات CodeQL الأربعة (منتهية التنفيذ والتحقق، في انتظار تأكيد القبول).
-- **الفرع الحالي:** `arena/f26ae208-new-cela` — مبني مباشرةً من `main`/`c2239de`، **لا يحتوي** التزامات الفرع القديم (`d8a8793` تسجيل الدمج · `1b3e3d8` إصلاح paths · `bddbd50` توثيقه). محتواها أُعيد تسجيله/تطبيقه هنا: المهمة 10 تُوثّق الدمج، وإصلاح `paths` مُعاد تطبيقه فعلياً ⇒ لا عمل مفقود.
+- **المهمة النشطة:** رقم 12 — تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela` (منتهية التنفيذ والتحقق، في انتظار تأكيد القبول).
+- **الفرع الحالي:** `arena/eef426e3-new-cela` — مبني مباشرةً من `main`/`6d5f9ae` (بعد دمج PR #8).
 - ⚠️ **حد API:** `code-scanning/alerts` لا يزال **403**؛ تفاصيل التنبيهات الأربعة من **واجهة المستخدم** (مصدر معتمد)، وتأكيد اختفائها نهائياً يحتاج واجهة المالك.
-- **اعتبار المهام 2-7:** اعتُبرت مقبولة ضمناً بتفويض المستخدم المتكرر «نفّذ التصحيحات / القواعد».
+- **اعتبار المهام 2-11:** اعتُبرت مقبولة/مُدمجة (آخرها PR #8 في `6d5f9ae`).
 - 📜 **المرجع الملزم الجديد:** [`CLAUDE.md`](CLAUDE.md) — اقرأه أولاً في كل جلسة.
+- 💰 **مرجع خطة الربح والتسعير الجديد:** [`docs/monetization-plan.md`](docs/monetization-plan.md) + الوحدة البرمجية [`src/core/pricing.py`](src/core/pricing.py).
 - ⚠️ **قرار معلق خارج الكود:** ترخيص PDPC للنقل عبر الحدود — موعد **31 أكتوبر 2026**.
 - ⚠️ **إجراء يدوي:** Branch protection على `main` يُرجع 403 لواجهة API — يحتاج مالك المستودع.
 - **مرجع جديد:** [`docs/ai-code-reliability.md`](docs/ai-code-reliability.md) — نموذج مخاطر مخرجات الوكيل الـ16 مُقيَّماً على الكود الفعلي.
@@ -142,6 +144,18 @@ gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 12: **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`**:
+  - **✅ الإجابة المباشرة على السؤال التأسيسي («أي نظام تقصد، ومن عميلك الأول؟»):** توصيف `new-cela` كنظام وكيل ذكاء اصطناعي مُتحقَّق بالأدلة (`SHA-256` + `CognitiveLoop` + فهرسة `Drive/OCR` باقتباسات `[#L]` + جاهزية امتثال قانون مصر 151/2020 وEU AI Act)، وتحديد العميل الأول: (1) **المسار السريع Bottom-Up:** المطور الأول / Tech Lead في شركات البرمجيات المصرية والعربية (خطة `Pro` بـ 490 ج.م/شهر أو $12/شهر)؛ (2) **المسار الأعلى عائداً B2B Pilot:** الشركات الصغيرة والمكاتب الاستشارية/القانونية/المحاسبية والورش الرقمية (خطة `Team` بـ 1,990 ج.م/شهر لـ 5 مقاعد).
+  - **✅ المرجع الدائم [`docs/monetization-plan.md`](docs/monetization-plan.md):** تقييم البنود الـ 14 على كود `new-cela` الفعلي، معادلات ROI بالأرقام (14.7x للأفراد و18.1x للفرق)، جدول الخطط الخمس (`Free`, `Pro`, `Team`, `Business`, `Enterprise`) بالجنيه المصري والدولار، حسم واقع بوابات الدفع لمصر (**InstaPay/Paymob/Fawry/Kashier + الفاتورة الإلكترونية ETA** محلياً، و**Paddle / Lemon Squeezy كـ Merchant of Record** دولياً بدل Stripe الذي لا يدعم مصر مباشرة)، وخطة التنفيذ الفوري بتكلفة 0 ج.م.
+  - **✅ التنفيذ البرمجي في [`src/core/pricing.py`](src/core/pricing.py) (بلا مساس بالملفات الحمراء المحمية في `quota.py`):**
+    1. `PlanTier` و`PlanSpec` و`PLAN_CATALOG`: خطط محددة السقف (بلا «غير محدود» على تكلفة متغيرة) مع خصم سنوي 17%–20% وتسعير المقاعد الإضافية.
+    2. `build_plan_guard`: ربط الخطط بـ `QuotaGuard` مع بقاء `allow_paid=False` افتراضياً (التزام صارم بالخط الأحمر).
+    3. `evaluate_usage_alert`: رسائل تنبيه عربية تلقائية عند الوصول إلى **80%** من الحد (`warning_80`) وتفعيل Paywall وتجربة 14 يوماً عند **100%** (`paywall`).
+    4. `classify_task_complexity`: تصنيف تعقيد المهام (`SIMPLE` / `MODERATE` / `COMPLEX`) لتوجيه المهام البسيطة لنماذج اقتصادية سريعة والمعقدة لنماذج الاستدلال العميق.
+    5. `calculate_unit_economics`: حساب تكلفة كل مستخدم (Inference + تخزين + دعم) وهامش الربح الإجمالي (> 80%) ونسبة `LTV:CAC` (≥ 3x).
+    6. `render_pricing_table` + خيارات CLI الجديدة `--plans` (نصي ومع `--json`) و`--plan` في `src/main.py`.
+  - **✅ التحقق:** **459 pytest ✅** (منها 10 اختبارات شاملة جديدة في `tests/test_pricing.py` بتغطية **99%** للوحدة الجديدة وإجمالي تغطية **85.80%**) · `ruff` ✅ · `compileall` ✅ · كل الحواجز الـ 7 (`error_guard`, `policy_guard`, `dependency_guard`, `action_pin_guard`, `secret_scan`, `pii_scan`, `spec_check`) ✅.
+  - **🔁 درس بالتشغيل (`Generate ← Run ← Test`):** في `Python 3.11` تعيد `str(PlanTier.PRO)` النص `'PlanTier.PRO'` لا `'pro'` للأنواع الموروثة من `(str, Enum)`. اكتشفها تشغيل `pytest` فوراً، فصُحّحت بدالة `_resolve_tier` التي تفحص `isinstance(tier, PlanTier)` قبل التحويل النصي.
 - **2026-10-24** — المهمة 11: **إغلاق تنبيهات CodeQL الأربعة** على `main` (3 High: Path injection في `memory.py:472/476` و`telemetry.py:232`؛ 1 Medium: Log Injection في `memory.py:508`). تفاصيل التنبيهات من **واجهة المستخدم** لأن API لا يزال 403. تتبّع التدفق: `st.text_input` في `dashboard/app.py:247-248` ⇒ `data.load_runs/open_memory` ⇒ `RunArchive/MemoryStore` ⇒ `.exists/.read_text/.glob/logger.info`. **الحل:** حاجز مركزي `src/core/path_guard.py` (`guard_path` · `guard_run_id` · `sanitize_for_log`) يرفض traversal/NUL/الطول المفرط/مناطق النظام، ويسمح بـ run_id مقيّد، ويُطهِّر السجل (CWE-117) — نفس النمط الناجح في `cognitive/store.py`. طبقة اللوحة تفشل بأمان (قائمة فارغة/مخزن ذاكرة). التحقق: **434 pytest ✅** (منها **31 اختباراً هجومياً** جديداً)، ruff ✅، compileall ✅، كل الحواجز ✅، `path_guard` أُضيف لـ `spec_check` و`policy_guard` كملف محمي. إصلاح `paths` في `quality-gate.yml` أُعيد تطبيقه على هذا الفرع المشتق من `main` ⇒ تغييرات `AGENT_HANDOFF.md`/`CLAUDE.md`/`docs/**`/`scripts/**` تُشغِّل CI الآن.
   - ⚠️ **درس Generate←Review:** أول تشغيل للاختبارات الهجومية كشف أن توقّعي كان خاطئاً — اعتبرت `MemoryStore(path="")` يجب أن يرفض، بينما الكود يعتمده عمداً كذاكرة RAM موثّقة. صُحِّح **توقّع الاختبار** لا الكود، وفُصل في اختبار مستقل: المسار الفارغ صراحةً مقصود، والمسافات فقط مرفوضة. لا تغيير في سلوك المنتج.
   - ⚠️ **حد مسجّل:** اختفاء التنبيهات من واجهة GitHub لا يمكن تأكيده آلياً (403) — الإثبات المتاح: كود مُصلَّح + اختبارات هجومية + CI. التأكيد النهائي من واجهة المالك.

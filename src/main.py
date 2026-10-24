@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="new-cela",
         description="نظام وكلاء ذكي مستقل — تشغيل مجاني بالكامل",
     )
-    # --task يبقى مطلوباً لكل الأنماط عدا --health (فحص جاهزية بلا تنفيذ).
+    # --task يبقى مطلوباً لكل الأنماط عدا --health أو --plans.
     parser.add_argument("--task", "-t", default=None, help="المهمة المطلوبة من الوكيل")
     parser.add_argument(
         "--health",
@@ -56,9 +56,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="فحص جاهزية المزودات وحالة قواطع الدائرة — بلا نداءات شبكية",
     )
     parser.add_argument(
+        "--plans",
+        action="store_true",
+        help="عرض جدول مقارنة خطط التسعير والحصص في صفحة واحدة (البند 7)",
+    )
+    parser.add_argument(
+        "--plan",
+        choices=["free", "pro", "team", "business", "enterprise"],
+        default=None,
+        help="اختيار خطة الحصص للمهمة (الافتراضي: free بسقف 40 نموذج / 20 أداة)",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
-        help="إخراج نتيجة --health بصيغة JSON (للـ CI والمراقبة)",
+        help="إخراج نتيجة --health أو --plans بصيغة JSON (للـ CI والمراقبة)",
     )
     parser.add_argument(
         "--mode",
@@ -198,6 +209,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_quota(args: argparse.Namespace) -> QuotaGuard:
     """حارس التكلفة — يمنع المزود غير المتحقق وتجاوز السقف."""
+    plan_name = getattr(args, "plan", None)
+    if plan_name and args.max_model_calls == 40 and args.max_tool_calls == 20:
+        from src.core.pricing import build_plan_guard
+
+        return build_plan_guard(
+            plan_name,
+            allow_unverified=args.allow_unverified_provider,
+            allow_paid=False,
+        )
     return QuotaGuard(
         max_model_calls=args.max_model_calls,
         max_tool_calls=args.max_tool_calls,
@@ -417,7 +437,33 @@ def main() -> int:
             print(f"  قواطع الدائرة: {report['circuit_breaker']}")
         return 0 if report["healthy"] else 2
 
-    # ---- التحقق اليدوي من --task (لأن --health يعفي منه) ----
+    # ---- عرض مقارنة الخطط والحصص: بلا نداءات شبكية ولا تنفيذ مهمة ----
+    if getattr(args, "plans", False):
+        import json as _json
+
+        from src.core.pricing import PLAN_CATALOG, render_pricing_table
+
+        if args.json:
+            payload = {
+                tier.value: {
+                    "name_ar": spec.name_ar,
+                    "monthly_price_egp": spec.monthly_price_egp,
+                    "monthly_price_usd": spec.monthly_price_usd,
+                    "annual_discount_pct": spec.annual_discount_pct,
+                    "included_seats": spec.included_seats,
+                    "monthly_tasks_quota": spec.monthly_tasks_quota,
+                    "max_model_calls_per_task": spec.max_model_calls_per_task,
+                    "max_tool_calls_per_task": spec.max_tool_calls_per_task,
+                    "watermark_reports": spec.watermark_reports,
+                }
+                for tier, spec in PLAN_CATALOG.items()
+            }
+            print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(render_pricing_table())
+        return 0
+
+    # ---- التحقق اليدوي من --task (لأن --health و --plans يعفيان منه) ----
     if not args.task or not args.task.strip():
         print("❌ الوسيط --task مطلوب (إلا مع --health).", file=sys.stderr)
         return 2

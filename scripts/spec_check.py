@@ -56,6 +56,15 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "guard_run_id": "func",
         "sanitize_for_log": "func",
     },
+    "src/core/pricing.py": {
+        "PlanTier": "class",
+        "PlanSpec": "class",
+        "PLAN_CATALOG": "const",
+        "build_plan_guard": "func",
+        "evaluate_usage_alert": "func",
+        "calculate_unit_economics": "func",
+        "render_pricing_table": "func",
+    },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
     "scripts/pii_scan.py": {"main": "func"},
@@ -74,6 +83,7 @@ REQUIRED_DOCS = (
     "docs/agent-failure-patterns.md",
     "docs/ci-cd-free-tier.md",
     "docs/compliance-framework.md",
+    "docs/monetization-plan.md",
 )
 
 # بنود المواصفة الأصلية (من الطلبات الأولى) — تُذكَّر في التقرير لمنع النسيان.
