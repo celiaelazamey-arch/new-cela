@@ -397,6 +397,9 @@ def main() -> int:
         return 1
 
     print("\n==================== نتيجة الوكيل ====================")
+    # إفصاح المادة 50(1) من EU AI Act — ساري منذ 2 أغسطس 2026.
+    # يُوضع بعد عنوان النتيجة ليظهر في كل مخرجات CLI وتعليقات Issues.
+    print("🤖 هذا المحتوى مولّد بواسطة وكيل ذكاء اصطناعي (Gemini/Groq) — راجعه بشرياً.")
     if isinstance(output, TaskResult):
         print(output.answer)
         print(f"\n--- التحقق ---\n{output.summary()}")
