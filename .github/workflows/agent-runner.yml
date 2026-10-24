@@ -148,7 +148,7 @@ jobs:
 
       - name: Upload Result Artifact
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6 — SHA مثبّت (supply chain)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v6 — SHA مثبّت (supply chain)
         with:
           name: agent-result
           path: |
