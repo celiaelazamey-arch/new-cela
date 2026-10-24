@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.core.path_guard import UnsafePath, guard_path, guard_run_id, sanitize_for_log
+from src.core.path_guard import UnsafePath, guard_path, guard_run_id
 from src.core.schemas import (
     MemoryHitView,
     RunReport,
@@ -33,6 +33,10 @@ from src.core.schemas import (
 )
 
 logger = logging.getLogger("new-cela.telemetry")
+
+# Allowlist لتسجيل اسم ملف التقرير — barrier يعترف به CodeQL (نمط store.py).
+# يسمح بحروف/أرقام يونيكود/نقاط/شرطات/مسافات؛ أي محرف تحكّم ⇒ يُحجب الاسم.
+_SAFE_FILE_LABEL = re.compile(r"[\w .\-]+")
 
 DEFAULT_RUNS_DIR = ".agent_runs"
 MAX_TEXT_CHARS = 6000
@@ -208,7 +212,8 @@ class RunArchive:
         try:
             self.path = guard_path(path or DEFAULT_RUNS_DIR)
         except UnsafePath as exc:
-            logger.warning("مسار سجل تشغيلات مرفوض: %s", sanitize_for_log(exc))
+            # نوع الاستثناء فقط — لا قيمة من المستخدم تصل للسجل (يمنع CWE-117).
+            logger.warning("مسار سجل تشغيلات مرفوض (%s).", type(exc).__name__)
             raise
         self.keep = max(1, int(keep))
 
@@ -267,7 +272,12 @@ def _read_report(file: Path) -> RunReport | None:
     try:
         return RunReport.model_validate(json.loads(file.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError) as exc:
-        # ✅ تنقيح اسم الملف قبل السجل — يمنع Log Injection عبر اسم ملف خبيث.
-        logger.warning("تخطّي تقرير تشغيل غير صالح %s (%s).",
-                       sanitize_for_log(file.name), type(exc).__name__)
+        # ✅ BARRIER بنمط store.py: اسم الملف يُسجَّل فقط إذا طابق allowlist،
+        # وإلا يُحجب. يمنع Log Injection عبر اسم ملف خبيث (CWE-117).
+        file_label = file.name
+        if _SAFE_FILE_LABEL.fullmatch(file_label):
+            logger.warning("تخطّي تقرير تشغيل غير صالح %s (%s).",
+                           file_label, type(exc).__name__)
+        else:
+            logger.warning("تخطّي تقرير تشغيل غير صالح (%s).", type(exc).__name__)
         return None

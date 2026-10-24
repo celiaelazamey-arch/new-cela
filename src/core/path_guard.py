@@ -37,6 +37,14 @@ _NEWLINE = re.compile(r"[\r\n\u2028\u2029]")
 # (القائمة دفاعية — الجذر المسموح below هو الفيصل الحقيقي.)
 _SENSITIVE_PREFIXES = ("/etc", "/proc", "/sys", "/dev", "/boot", "/root")
 
+# Allowlist صريحة للمسار — **مطابقة تماماً لنمط cognitive/store.py::_RUN_ID.fullmatch**
+# الذي أثبت CodeQL أنه barrier يقطع الـ taint: نتحقق بـ fullmatch على المتغير،
+# ثم نستخدم *نفس المتغير* بعد الـ guard (لا .group(0) قد لا يُعرَّف كـ taint-free).
+# \w = حروف/أرقام يونيكود (يشمل العربية) + _ — مهم لمسارات المستخدمين في مصر.
+# المسموح إضافةً: نقاط/شرطات/مسافات/فواصل مسارات. الممنوع ضمناً: محارف تحكّم،
+# أسطار جديدة، `?`, `*`, `:`, `;`, `|`, `&`, `$`, backtick ... إلخ.
+_SAFE_PATH = re.compile(r"[\w .\-/\\]+")
+
 
 class UnsafePath(ValueError):
     """مسار مرفوض من حاجز الأمان — لا يُستخدم في أي عملية قرص."""
@@ -44,14 +52,20 @@ class UnsafePath(ValueError):
 
 def sanitize_for_log(value: object, limit: int = 200) -> str:
     """
-    يطهّر قيمة قبل كتابتها في السجل — يمنع Log Injection (التنبيه #4).
+    يطهّر قيمة قبل كتابتها في السجل — يمنع Log Injection (CWE-117).
 
-    يستبدل الأسطار الجديدة ومحارف التحكّم بنقاط آمنة، ويقتطع الطول.
+    الاستراتيجية (حتى يعترف CodeQL بالتطهير كـ barrier لا مجرد re.sub):
+      1. تُستبدل الأسطار الجديدة ومحارف التحكّم بنقاط آمنة.
+      2. يُبنى الناتج من **حروف قابلة للطباعة فقط** (allowlist صريحة)،
+         فينقطع تدفّق أي قيمة غير موثوقة قبل أن تصل إلى `logger`.
     """
     text = str(value)
     text = _NEWLINE.sub("⏎", text)
     text = _CONTROL_CHARS.sub("·", text)
-    return text[:limit]
+    # allowlist barrier: لا يمرّ إلا حرف قابل للطباعة (يمنع CWE-117 فعلياً،
+    # ويُعرَّف لـ CodeQL كقيمة جديدة مبنية من نمط آمن).
+    safe = "".join(ch for ch in text if ch.isprintable())
+    return safe[:limit]
 
 
 def guard_path(
@@ -74,22 +88,29 @@ def guard_path(
       • مسار مطلق نحو بادئة حساسة
       • خروج عن الجذور المسموحة عند طلب ذلك
     """
-    text = os.fspath(raw)
-    if not isinstance(text, str):
+    raw_text = os.fspath(raw)
+    if not isinstance(raw_text, str):
         raise UnsafePath("نوع مسار غير مدعوم.")
-    if not text or not text.strip():
+    if not raw_text or not raw_text.strip():
         raise UnsafePath("مسار فارغ.")
-    if len(text) > MAX_PATH_CHARS:
+    if len(raw_text) > MAX_PATH_CHARS:
         raise UnsafePath("المسار أطول من الحد المسموح.")
-    if "\x00" in text:
+    if "\x00" in raw_text:
         raise UnsafePath("المسار يحتوي محرف NUL.")
 
+    # ✅ BARRIER (مطابق لنمط store.py المُثبَت): fullmatch على `raw_text`،
+    # ثم استخدام *نفس المتغير* بعد الـ guard. CodeQL يقطع الـ taint هنا قبل
+    # أي .resolve() أو عملية قرص لاحقة.
+    if not _SAFE_PATH.fullmatch(raw_text):
+        raise UnsafePath("المسار يحتوي محارف غير مسموحة.")
+
     # منع traversal صريح — قبل أي resolve (قد يُخفي `..` عبر symlink).
-    parts = re.split(r"[\\/]+", text)
+    parts = re.split(r"[\\/]+", raw_text)
     if ".." in parts:
         raise UnsafePath("محاولة traversal مرفوضة (..).")
 
-    candidate = Path(text)
+    # نُعيد المسار المبني من المتغير المُطهَّر بعد barrier الـ fullmatch.
+    candidate = Path(raw_text)
 
     # منع الإشارة الصريحة لمناطق النظام الحساسة.
     try:
@@ -107,7 +128,7 @@ def guard_path(
         if not any(resolved == r or r in resolved.parents for r in roots):
             raise UnsafePath("المسار يخرج عن الجذور المسموحة.")
 
-    # نُعيد المسار بعد التطبيع (يحتفظ بالشكل الأصلي لكن آمن).
+    # نُعيد المسار المبني من القيمة المُطهَّرة (لا النص الخام).
     return candidate
 
 

@@ -32,10 +32,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.core.path_guard import UnsafePath, guard_path, sanitize_for_log
+from src.core.path_guard import UnsafePath, guard_path
 from src.core.schemas import MemoryEntry, MemoryKind, StepRecord, StepStatus
 
 logger = logging.getLogger("new-cela.memory")
+
+# Allowlist لتسجيل اسم المسار في السجل — barrier يعترف به CodeQL (نمط store.py).
+# يسمح بحروف/أرقام يونيكود (\w — يشمل العربية)/نقاط/شرطات/مسافات/فواصل مسارات؛
+# أي محرف تحكّم أو سطر جديد ⇒ لا يطابق ⇒ يُحجب الاسم (يمنع CWE-117).
+_SAFE_PATH_LABEL = re.compile(r"[\w .\-/\\]+")
 
 # ---- حدود ثابتة تحمي حجم الطلب والقرص ----
 MAX_CONTENT_CHARS = 600
@@ -216,7 +221,9 @@ class MemoryStore:
             try:
                 self.path = guard_path(path)
             except UnsafePath as exc:
-                logger.warning("مسار ذاكرة مرفوض: %s", sanitize_for_log(exc))
+                # نسجّل نوع الاستثناء فقط (رسالته ثابتة) — لا تمرّ أي قيمة من المستخدم
+                # إلى السجل، فيُقطع تدفّق البيانات تماماً قبل logger (CWE-117).
+                logger.warning("مسار ذاكرة مرفوض (%s).", type(exc).__name__)
                 raise
 
         self.max_entries = max(1, int(max_entries))
@@ -513,8 +520,14 @@ class MemoryStore:
         self._entries = entries
         self._ids = {item.id for item in entries}
         self._needs_compaction = bool(self._skipped_lines or duplicates or trimmed)
-        # ✅ تنقيح المسار قبل كتابته في السجل — يمنع Log Injection (التنبيه #4).
-        logger.info("تم تحميل %d ذكرى من %s.", len(entries), sanitize_for_log(self.path))
+        # ✅ BARRIER محلي مطابق لنمط cognitive/store.py::_RUN_ID.fullmatch:
+        # نتحقق بـ fullmatch على المتغير ثم نسجّل *نفس المتغير* بعد الـ guard.
+        # أي سطر جديد/محرف تحكّم ⇒ لا يطابق ⇒ يُحجب الاسم (يمنع CWE-117).
+        path_label = str(self.path)
+        if _SAFE_PATH_LABEL.fullmatch(path_label):
+            logger.info("تم تحميل %d ذكرى من %s.", len(entries), path_label)
+        else:
+            logger.info("تم تحميل %d ذكرى (اسم المسار محجوب).", len(entries))
 
     def __repr__(self) -> str:  # pragma: no cover - تمثيل تشخيصي
         return f"MemoryStore(path={self.path!r}, entries={len(self)})"

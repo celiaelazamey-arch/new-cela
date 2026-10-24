@@ -156,3 +156,47 @@ def test_guard_run_id_valid() -> None:
 def test_guard_run_id_rejects_bad(bad: str) -> None:
     with pytest.raises(UnsafePath):
         guard_run_id(bad)
+
+
+# ============ BARRIER الجديد: allowlist تقطع taint (نمط store.py) ============
+
+@pytest.mark.parametrize("attack", [
+    "runs; rm -rf /",       # فاصل أوامر
+    "runs && whoami",        # && حقن
+    "runs`id`",             # backtick
+    "runs$(id)",            # استبدال أمر
+    "runs|cat",             # pipe
+    "runs?x",               # wildcard
+    "runs*x",
+    "runs\nATTACKER",       # سطر جديد محقون
+    "runs\rATTACKER",
+])
+def test_guard_path_allowlist_rejects_injection(attack: str) -> None:
+    """رموز الحقن والأسطار الجديدة مرفوضة عبر _SAFE_PATH.fullmatch barrier."""
+    with pytest.raises(UnsafePath):
+        guard_path(attack)
+
+
+def test_guard_path_accepts_arabic_dir(tmp_path: Path) -> None:
+    r"""\w يونيكود — المسارات العربية مقبولة (مستخدمون في مصر)."""
+    arabic = "سجلات_التشغيل"
+    result = guard_path(arabic)
+    assert result == Path(arabic)
+
+
+def test_sanitize_for_log_removes_ansi_escape() -> None:
+    """isprintable() يزيل محارف التحكّم (ANSI escape) — يمنع تزييف السجل."""
+    dirty = "ok\x1b[31mRED\x1b[0m\nnewline"
+    clean = sanitize_for_log(dirty)
+    assert "\x1b" not in clean
+    assert "\n" not in clean
+    assert "RED" in clean  # النص المرئي يبقى but بلا محارف تحكّم
+
+
+def test_safe_path_label_pattern_rejects_newline() -> None:
+    """نمط الـ label في memory.py يرفض الأسطار الجديدة فعلياً."""
+    import re
+    label_pattern = re.compile(r"[\w .\-/\\]+")
+    assert label_pattern.fullmatch("مسار/آمن.jsonl")
+    assert label_pattern.fullmatch("path\nATTACKER") is None
+    assert label_pattern.fullmatch("path\x00bad") is None
