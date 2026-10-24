@@ -119,6 +119,19 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "recommend_mesh_and_lpi": "func",
         "calculate_screen_print_job": "func",
     },
+    "src/core/playbook.py": {
+        "ProductStage": "class",
+        "GoldenRuleEvaluation": "class",
+        "BackupManifest": "class",
+        "ProjectHealthAction": "class",
+        "ActivityGateResult": "class",
+        "PLAYBOOK_18_EVIDENCE": "const",
+        "evaluate_golden_rule_stage": "func",
+        "create_verified_backup": "func",
+        "restore_and_verify_backup": "func",
+        "evaluate_30_day_activity_gate": "func",
+        "audit_18_point_playbook": "func",
+    },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
     "scripts/pii_scan.py": {"main": "func"},
@@ -141,6 +154,8 @@ REQUIRED_DOCS = (
     "docs/monetization-plan.md",
     "docs/devsecops-free-tools.md",
     "docs/niche-strategy-manus.md",
+    "docs/operating-playbook-18.md",
+    "CHANGELOG.md",
 )
 
 # بنود المواصفة الأصلية (من الطلبات الأولى) — تُذكَّر في التقرير لمنع النسيان.

@@ -109,12 +109,14 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 12 | **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`** + **حل تعارض PR #9** | ✅ **مقبولة** (أكدتها لقطة شاشة PR #10 الأخضر بالكامل) | `docs/monetization-plan.md` · `src/core/pricing.py` · `--plans`/`--plan` · توحيد PR #8 + PR #9 + المهمة 12 · **488 pytest ✅** · PR #10 `CLEAN` ✅ | `aeb9427` + `7660215` |
 | 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مقبولة ومُدمجة في `main`** (PR #10 `3e9c2d6`) | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · دمج PR #10 ✅ | `ddda822` + `3e9c2d6` |
 | 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مقبولة** (أكدها المستخدم بطلب تشغيل `--niches` وذكر مطبعته الخاصة) | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** | `d5443dc` + `8c5cf5e` |
-| 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · كل الحواجز وCI ✅ | `006d09d` |
+| 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مقبولة** (أكدها المستخدم بطلب فتح PR #19) | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · PR #19 `CLEAN` ✅ | `006d09d` + `5be9536` |
+| 16 | **دستور التشغيل الهندسي والتجاري (18 قاعدة) + القاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + النسخ الاحتياطي وتجربة الاستعادة الفعلية + `CHANGELOG.md`** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | `docs/operating-playbook-18.md` · `src/core/playbook.py` · `CHANGELOG.md` · **504 pytest ✅** · كل الحواجز وCI ✅ | هذا الـ commit |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 15 — تخصيص وبناء محرك **مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة** (`src/screen_print/engine.py`) لخدمة مطبعة المستخدم مباشرةً (العميل رقم #0 / Dogfooding) وأرشيف أفلامه الكبير.
-- **الفرع الحالي:** `arena/3c154eae-new-cela` (متفرّع من `main` @ `3e9c2d6` بعد دمج PR #10 وPR #9).
-- 👕 **محرك السلك سكرين وأفلام الطباعة الجديد:** [`src/screen_print/engine.py`](src/screen_print/engine.py) + اختبارات [`tests/test_screen_print.py`](tests/test_screen_print.py).
+- **المهمة النشطة:** رقم 16 — تجسيد وتوثيق دستور التشغيل (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + تجربة الاستعادة الفعلية للنسخ الاحتياطية (`restore_and_verify_backup`) + `CHANGELOG.md`.
+- **الفرع الحالي:** `arena/3c154eae-new-cela` (مرتبط بـ **PR #19** المفتوح والجاهز للدمج إلى `main`).
+- 📜 **مرجع دستور التشغيل (18 قاعدة) الجديد:** [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) + الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + [`CHANGELOG.md`](CHANGELOG.md).
+- 👕 **محرك السلك سكرين وأفلام الطباعة:** [`src/screen_print/engine.py`](src/screen_print/engine.py) + اختبارات [`tests/test_screen_print.py`](tests/test_screen_print.py).
 - 🎯 **مرجع استراتيجية النيش العمودي:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
 - 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
 - 📋 **خطة إكمال البنود الناقصة** (من PR #9): [`docs/completion-plan.md`](docs/completion-plan.md) — 15 فجوة مجرودة من الكود، 4 مراحل.
@@ -168,6 +170,15 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 16: **تجسيد وتوثيق دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»)**:
+  - **✅ المرجع الدائم [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md):** يربط القواعد الـ 18 كاملةً بأدلة الكود الفعلية في `new-cela` (`18/18` محققة برمجياً).
+  - **✅ سجل التغييرات ودراسة حالة العميل رقم #0 [`CHANGELOG.md`](CHANGELOG.md) (البند 17 — ابنِ علناً):** يوثّق دراسة حالة مطبعة الملابس (السلك سكرين) وأرشيف الأفلام وسجل الإصدارات من `0.2.0` حتى `0.5.0`.
+  - **✅ الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + `tests/test_playbook.py`:**
+    1. **بوابة القاعدة الذهبية (`evaluate_golden_rule_stage`):** تفرض التسلسل الإلزامي `SIMPLE` ← `WORKS` ← `MEASURED` ← `SOLD` (3–10 عملاء يدفعون يدوياً قبل بناء بوابة الدفع) ← `SCALES` (>= 10 عملاء بهامش موجب ونسبة نجاح >= 85%).
+    2. **النسخ الاحتياطي الموثّق بـ `SHA-256` وتجربة الاستعادة الفعلية (`create_verified_backup` & `restore_and_verify_backup` — البند 6 و16):** ينشئ نسخة احتياطية قبل العمليات الكبيرة ويجري اختبار استعادة فعلياً (`Restore Drill`) على أرشيف أفلام المطبعة مع التحقق من تطابق البصمة والحجم.
+    3. **بوابة الاستمرارية والـ 30 يوماً (`evaluate_30_day_activity_gate` — البند 18):** تفرض مهمة واحدة يومياً، وأسبوع مراجعة كل 4 أسابيع، وتجميد أي مشروع يتوقف 30 يوماً.
+    4. **المدقق الآلي للبنود الـ 18 (`audit_18_point_playbook`):** يتحقق برمجياً من وجود جميع الملفات والأدلة الـ 18 في المستودع.
+  - **✅ التحقق:** **504 pytest ✅** · **82 عقداً معمارياً** و**14 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
 - **2026-10-24** — المهمة 15: **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) لمطبعة المستخدم (العميل رقم #0)**:
   - **💡 نقطة التحول الاستراتيجية:** كشف المستخدم أنه يملك فعلياً **مطبعة ملابس سلك سكرين ولديه أرشيف كبير من أفلام الطباعة** (`انا املك مطبعة ملابس ايضا سلك سكرين ولدي افلام طباعة كتير`) — مما يعني أن النيش الأول (`print_prepress`) ليس فرضية نظرية بل هو عمله الفعلي (Customer #0 بتكلفة استحواذ 0 ج.م وبيانات حقيقية من أرشيف أفلامه!).
   - **✅ بناء الوحدة البرمجية [`src/screen_print/engine.py`](src/screen_print/engine.py) + `tests/test_screen_print.py`:**
