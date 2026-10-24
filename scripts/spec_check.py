@@ -79,6 +79,14 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "guard_run_id": "func",
         "sanitize_for_log": "func",
     },
+    "src/core/prompt_guard.py": {
+        "PromptRiskLevel": "class",
+        "PromptGuardResult": "class",
+        "PromptInjectionDetected": "class",
+        "inspect_prompt_injection": "func",
+        "guard_tool_input": "func",
+        "strip_invisible_chars": "func",
+    },
     "src/core/pricing.py": {
         "PlanTier": "class",
         "PlanSpec": "class",
@@ -108,6 +116,7 @@ REQUIRED_DOCS = (
     "docs/compliance-framework.md",
     "docs/functional-awareness-qa.md",
     "docs/monetization-plan.md",
+    "docs/devsecops-free-tools.md",
 )
 
 # بنود المواصفة الأصلية (من الطلبات الأولى) — تُذكَّر في التقرير لمنع النسيان.

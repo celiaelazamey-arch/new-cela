@@ -170,6 +170,7 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 | [`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) | إفصاح المادة 50 |
 | [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) | الوعي الوظيفي (12 س/ج): تقادم نموذج الذات، معايرة، L0–L3 + kill switch، مقاييس، محكّم |
 | [`docs/monetization-plan.md`](docs/monetization-plan.md) | خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela` |
+| [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) | أدوات الجودة والأمان والاختبار والنشر المجانية (14 فئة) — تحقق حدود 2026 وتقييم `new-cela` |
 
 ---
 

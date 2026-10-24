@@ -32,6 +32,7 @@ PROTECTED = {
     "scripts/pii_scan.py": "فاحص البيانات الشخصية",
     "scripts/error_guard.py": "حارس معالجة الأخطاء",
     "src/core/path_guard.py": "حاجز المسارات (CodeQL #1-#4)",
+    "src/core/prompt_guard.py": "حارس حقن التوجيه (Prompt Injection Guard)",
 }
 
 
