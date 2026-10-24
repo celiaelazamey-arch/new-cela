@@ -21,7 +21,8 @@
 ## 📅 سجل الإصدارات والدفعات الموثّقة (2026-10-23 ← 2026-10-24)
 
 ### `[0.5.0] - 2026-10-24` — دستور التشغيل (18 قاعدة) + محرك مطبعة السلك سكرين + استراتيجية النيش (PR #19)
-- **دفعة P0.5 لتدعيم حدود العامل وZIP:** قراءة `result.json` بـ `O_NOFOLLOW` + `fstat` + سقف 5 MiB؛ نسخ الأب عبر مصدر بلا symlink إلى ملف مرحلي `0400`؛ ضبط `RLIMIT_FSIZE=6 MiB`، واقتطاع مخرجات النص إلى `partial/text_truncated`؛ رفض الجذور الواسعة والتحقق من `realpath`؛ ورفع تغطية فروع الرفض في `_safe_read_zip_entry` و`ingest_file_isolated` إلى 100% ضمن suite `tests/test_ingestion.py`.
+- **دفعة P0.5/P0.6 لعامل الاستيعاب:** حساب الهوية أثناء نسخ مرحلي single-pass؛ staging `0400` داخل temp dir `0700`؛ حماية مصدر ونتيجة العامل من symlink؛ سقف JSON 5 MiB و`RLIMIT_FSIZE=6 MiB` مع اقتطاع مقصود ومعالجة `EFBIG`؛ تحقق JSON عميق؛ رفض جذور symlink والجذور الواسعة؛ واختبارات fault حقيقية لعامل فرعي وقراءة ZIP وJSON.
+- **تقرير تغطية أمني موجّه:** 100% من الأسطر وفروع القرار في `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log` و`guard_path` ضمن اختبارات الاستيعاب/حارس المسارات؛ وبيان صريح لأي فرع داخلي غير قابل للوصول.
 - **تعقيم SVG/HTML:** تطبيع الشرطة العكسية قبل فحص URI، حصر الروابط الخارجية في `a[href]`، بادئة `id` لمنع DOM clobbering، حفظ أسماء SVG القياسية، وموازنة الوسوم المفتوحة.
 - **المهمة 16 (`src/core/playbook.py` + `docs/operating-playbook-18.md` + `CHANGELOG.md`):**
   - تجسيد القاعدة الذهبية **«بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»** برمجياً (`evaluate_golden_rule_stage`).

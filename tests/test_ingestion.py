@@ -753,32 +753,30 @@ def test_ingestion_requires_explicit_allowed_root(tmp_path: Path) -> None:
     ("script", "timeout", "expected_reason"),
     [
         ("import os; os.abort()", 5.0, "signal_6"),
+        ("raise SystemExit(76)", 5.0, "worker_result_efbig"),
         ("import os\nwhile True: os.write(1, b'x' * 1048576)", 0.25, "parser_timeout"),
         (
             "import os\np='{worker_out}'\nos.unlink(p)\nos.symlink('/etc/passwd', p)",
             5.0,
             "worker_result_invalid",
         ),
-        (
+        pytest.param(
             "import resource\nresource.setrlimit(resource.RLIMIT_AS, (268435456, 268435456))\n" +
             "try: bytearray(1073741824)\nexcept MemoryError: raise SystemExit(75)",
-            5.0,
-            "parser_oom",
+            5.0, "parser_oom", marks=pytest.mark.skipif(sys.platform != "linux", reason="RLIMIT_AS probe is Linux-only"),
         ),
-        (
+        pytest.param(
             "import os\nfrom src.ingestion.pipeline import _apply_worker_rlimits\n" +
             "_apply_worker_rlimits(512, 15)\nfd=os.open('{worker_out}', os.O_WRONLY)\n" +
             "while True: os.write(fd, b'x' * 1048576)",
-            5.0,
-            "parser_crash",
+            5.0, "parser_crash", marks=pytest.mark.skipif(sys.platform != "linux", reason="RLIMIT_FSIZE probe is Linux-only"),
         ),
     ],
-    ids=["real-abort", "multi-gigabyte-stdout", "result-symlink", "rlimit-as-oom", "rlimit-fsize-output"],
+    ids=["real-abort", "worker-efbig-exit", "multi-gigabyte-stdout", "result-symlink", "rlimit-as-oom", "rlimit-fsize-output"],
 )
 def test_real_worker_faults_are_bounded_and_fail_closed(
     tmp_path: Path, script: str, timeout: float, expected_reason: str
 ) -> None:
-    pytest.importorskip("resource") if "resource." in script or "_apply_worker_rlimits" in script else None
     source = tmp_path / "fault.txt"
     source.write_text("safe", encoding="utf-8")
     result = ingest_file_isolated(
@@ -793,8 +791,8 @@ def test_real_worker_faults_are_bounded_and_fail_closed(
 
 @pytest.mark.parametrize(
     "broad_root",
-    ["/", "/tmp", str(Path.home())],
-    ids=["filesystem-root", "system-temp-root", "home-root"],
+    ["/", "/tmp", str(Path.home()), "/home", "/etc", "/var", str(Path.cwd())],
+    ids=["filesystem-root", "system-temp-root", "home-root", "home-parent", "etc", "var", "project-root"],
 )
 def test_allowed_root_rejects_broad_roots(tmp_path: Path, broad_root: str) -> None:
     source = tmp_path / "source.txt"
@@ -981,13 +979,13 @@ def test_isolated_worker_rejects_changed_staged_copy(tmp_path: Path, monkeypatch
     source = tmp_path / "source.txt"
     source.write_text("original", encoding="utf-8")
 
-    def replace_copy(_source: Path, destination: Path) -> None:
-        destination.write_text("modified", encoding="utf-8")
+    def fail_copy(_source: Path, _destination: Path) -> tuple[str, int, bytes]:
+        raise ValueError("source_changed_during_copy")
 
-    monkeypatch.setattr(pipeline, "_copy_to_private_readonly", replace_copy)
+    monkeypatch.setattr(pipeline, "_copy_to_private_readonly", fail_copy)
     result = ingest_file_isolated(source, allowed_root=tmp_path)
     assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
-    assert result.metadata["blocked_reason"] == "input_changed_during_staging"
+    assert result.metadata["blocked_reason"] == "parser_subprocess_staging_error"
 
 
 def test_isolated_worker_timeout_uses_kill_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1081,6 +1079,7 @@ def test_parent_stages_readonly_copy_and_worker_can_read_it(tmp_path: Path) -> N
     script = (
         "import hashlib,json,os,stat\np='{worker_file}'\ndata=open(p,'rb').read()\n"
         "assert stat.S_IMODE(os.stat(p).st_mode)==0o400\n"
+        "assert stat.S_IMODE(os.stat(os.path.dirname(p)).st_mode)==0o700\n"
         "result={'id':'sha256:'+hashlib.sha256(data).hexdigest(),'name':'design.txt',"
         "'mime':'text/plain','size':len(data),'status':'extracted','parser':'test','text':data.decode()}\n"
         "open('{worker_out}','w').write(json.dumps(result))"
@@ -1090,3 +1089,363 @@ def test_parent_stages_readonly_copy_and_worker_can_read_it(tmp_path: Path) -> N
     )
     assert result.status == IngestionStatus.EXTRACTED.value
     assert result.text == "Cairo print art"
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"nest": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}, "complexity"),
+        ({"keys": {str(i): i for i in range(10_001)}}, "keys"),
+        ({"text": "x" * 1_000_001}, "string too long"),
+        ({"warnings": ["x" * 4097]}, "warning limit"),
+        ({"number": float("inf")}, "non-finite"),
+    ],
+    ids=["deep-json", "too-many-keys", "long-string", "oversized-warning", "non-finite-number"],
+)
+def test_worker_json_complexity_is_bounded(payload: dict[str, object], message: str) -> None:
+    from src.ingestion.pipeline import _validate_worker_json
+
+    with pytest.raises(ValueError, match=message):
+        _validate_worker_json(payload)
+
+
+def test_safe_xml_releases_zip_memoryview() -> None:
+    from src.ingestion.pipeline import _safe_read_zip_entry
+
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("document.xml", "<root>safe</root>")
+    with zipfile.ZipFile(io.BytesIO(archive_bytes.getvalue())) as archive:
+        view = _safe_read_zip_entry(
+            archive, archive.infolist()[0], limits=IngestionLimits(), cumulative_bytes=[0]
+        )
+        safe_xml_fromstring(view)
+        with pytest.raises(ValueError, match="released memoryview"):
+            bytes(view)
+
+
+def test_allowed_root_rejects_symlink_root(tmp_path: Path) -> None:
+    from src.ingestion.pipeline import _resolve_allowed_root
+
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    link = tmp_path / "selected-link"
+    link.symlink_to(actual)
+    with pytest.raises(ValueError, match="allowed_root_symlink_rejected"):
+        _resolve_allowed_root(link)
+
+
+def test_worker_efbig_maps_to_specific_exit_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import errno
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path / "result.json"
+    output.touch()
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="input.txt", mime="text/plain", size=1,
+        status=IngestionStatus.EXTRACTED.value, parser="test", language=None, text="safe",
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(
+        pipeline.os,
+        "write",
+        lambda *_args: (_ for _ in ()).throw(OSError(errno.EFBIG, "file too large")),
+    )
+    code = pipeline._cli_worker_main(
+        ["--worker-file", str(source), "--worker-root", str(tmp_path),
+         "--worker-limits", "{}", "--worker-out", str(output)],
+        apply_os_sandbox=False,
+    )
+    assert code == pipeline.WORKER_OUTPUT_EFBIG_EXIT
+
+
+def test_timeout_removes_private_worker_directory(tmp_path: Path) -> None:
+    source = tmp_path / "hang.txt"
+    source.write_text("safe", encoding="utf-8")
+    marker = tmp_path / "staging-path.txt"
+    script = (
+        "from pathlib import Path\nPath(r'" + str(marker) + "').write_text('{worker_root}')\n"
+        "while True: pass"
+    )
+    result = ingest_file_isolated(
+        source, allowed_root=tmp_path, timeout_seconds=0.2,
+        _worker_cmd=[sys.executable, "-c", script],
+    )
+    assert result.metadata["blocked_reason"] == "parser_timeout"
+    staging_path = Path(marker.read_text(encoding="utf-8"))
+    assert not staging_path.exists()
+
+
+def test_deep_worker_json_recursion_is_fail_closed(tmp_path: Path) -> None:
+    source = tmp_path / "deep.txt"
+    source.write_text("safe", encoding="utf-8")
+    script = "open('{worker_out}','w').write('[' * 2000 + '0' + ']' * 2000)"
+    result = ingest_file_isolated(
+        source, allowed_root=tmp_path, _worker_cmd=[sys.executable, "-c", script]
+    )
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "worker_result_invalid"
+
+
+def test_safe_zip_safety_declared_total_limit() -> None:
+    from src.ingestion.pipeline import _check_zip_safety
+
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("payload.txt", "long enough")
+    with (
+        zipfile.ZipFile(io.BytesIO(archive_bytes.getvalue())) as archive,
+        pytest.raises(ValueError, match="zip_bomb_size_exceeded"),
+    ):
+        _check_zip_safety(archive, IngestionLimits(max_uncompressed_bytes=1))
+
+
+def test_guard_path_rejects_non_string_pathlike() -> None:
+    from src.core.path_guard import UnsafePath, guard_path
+
+    with pytest.raises(UnsafePath, match="نوع مسار"):
+        guard_path(b"not-a-text-path")
+
+
+def test_worker_cli_handles_memory_error_and_sandbox_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    args = ["--worker-file", str(source), "--worker-root", str(tmp_path), "--worker-limits", "{}"]
+    monkeypatch.setattr(pipeline, "_apply_worker_rlimits", lambda *_args: None)
+    monkeypatch.setattr(pipeline, "_disable_worker_network", lambda: None)
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: (_ for _ in ()).throw(MemoryError()))
+    assert pipeline._cli_worker_main(args, apply_os_sandbox=True) == pipeline.WORKER_OOM_EXIT
+
+
+def test_worker_cli_falls_back_for_oversized_structured_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from src.ingestion import pipeline
+
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="large.txt", mime="text/plain", size=1,
+        status=IngestionStatus.EXTRACTED.value, parser="test", language=None, text="",
+        tables=[["x" * (pipeline.MAX_WORKER_RESULT_BYTES + 100)]],
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path / "result.json"
+    output.touch()
+    assert pipeline._cli_worker_main(
+        ["--worker-file", str(source), "--worker-root", str(tmp_path),
+         "--worker-limits", "{}", "--worker-out", str(output)],
+        apply_os_sandbox=False,
+    ) == 0
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["tables"] == []
+    assert payload["status"] == IngestionStatus.PARTIAL.value
+
+
+def test_worker_cli_rejects_output_outside_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path.parent / f"{tmp_path.name}-outside-result.json"
+    output.touch()
+    monkeypatch.setattr(
+        pipeline,
+        "ingest_file",
+        lambda *_args, **_kwargs: pipeline.IngestionResult(
+            id="sha256:test", name="input.txt", mime="text/plain", size=1,
+            status="extracted", parser="test", language=None, text="x",
+        ),
+    )
+    with pytest.raises(ValueError, match="worker_output_path_outside_root"):
+        pipeline._cli_worker_main(
+            ["--worker-file", str(source), "--worker-root", str(tmp_path),
+             "--worker-limits", "{}", "--worker-out", str(output)],
+            apply_os_sandbox=False,
+        )
+
+
+def test_worker_result_reader_rejects_stat_oversize_and_read_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline
+
+    output = tmp_path / "result.json"
+    output.write_bytes(b"12345")
+    monkeypatch.setattr(pipeline, "MAX_WORKER_RESULT_BYTES", 4)
+    with pytest.raises(ValueError, match="not_regular_or_too_large"):
+        pipeline._read_worker_result(output)
+
+    output.write_bytes(b"")
+    monkeypatch.setattr(pipeline.os, "read", lambda *_args: b"abc")
+    with pytest.raises(ValueError, match="worker_output_too_large"):
+        pipeline._read_worker_result(output)
+
+
+def test_svg_html_sanitizer_rejection_branches() -> None:
+    from src.ingestion.pipeline import _AllowlistSvgHtmlSanitizer
+
+    sanitizer = _AllowlistSvgHtmlSanitizer()
+    sanitizer.handle_decl("DOCTYPE entity SYSTEM public")
+    sanitizer.handle_decl("plain declaration")
+    sanitizer._warn_once("duplicate-warning")
+    sanitizer._warn_once("duplicate-warning")
+    sanitizer.unknown_decl("[CDATA[bad]]")
+    sanitizer.handle_starttag("script", [])
+    sanitizer.handle_starttag("script", [])
+    sanitizer.handle_starttag("div", [])
+    sanitizer.handle_data("hidden")
+    sanitizer.handle_endtag("div")
+    sanitizer.handle_endtag("script")
+    sanitizer.handle_endtag("script")
+    sanitizer.handle_data("visible")
+    sanitizer.handle_starttag("svg", [])
+    sanitizer.handle_starttag("g", [])
+    sanitizer.handle_endtag("svg")
+    sanitizer.handle_entityref("amp")
+    sanitizer.handle_entityref("external")
+    sanitizer.handle_charref("65")
+    sanitizer.handle_starttag(
+        "a",
+        [("rel", "opener"), ("onclick", "alert(1)"), ("bogus", "x"),
+         ("href", "javascript:alert(1)"), ("style", "background:url(x)"), ("class", "ok")],
+    )
+    sanitizer.handle_endtag("missing")
+    sanitizer.handle_startendtag("br", [])
+    sanitizer._skip_depth = 1
+    sanitizer.handle_data("hidden")
+    sanitizer.handle_entityref("amp")
+    sanitizer.handle_charref("65")
+    assert "visible" in "".join(sanitizer.output)
+    assert "hidden" not in "".join(sanitizer.output)
+    assert any("xxe_entity_blocked" in warning for warning in sanitizer.warnings)
+    assert any("xss_vector_sanitized" in warning for warning in sanitizer.warnings)
+
+
+def test_worker_cli_bounds_unrepresentable_minimum_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path / "result.json"
+    output.touch()
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="input.txt", mime="text/plain", size=1,
+        status="extracted", parser="test", language=None, text="x",
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(pipeline, "MAX_WORKER_RESULT_BYTES", 1)
+    with pytest.raises(ValueError, match="worker_result_cannot_be_bounded"):
+        pipeline._cli_worker_main(
+            ["--worker-file", str(source), "--worker-root", str(tmp_path),
+             "--worker-limits", "{}", "--worker-out", str(output)],
+            apply_os_sandbox=False,
+        )
+
+
+def test_worker_cli_memoryerror_during_json_serialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="input.txt", mime="text/plain", size=1,
+        status="extracted", parser="test", language=None, text="x",
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(pipeline.json, "dumps", lambda *_args, **_kwargs: (_ for _ in ()).throw(MemoryError()))
+    code = pipeline._cli_worker_main(
+        ["--worker-file", str(source), "--worker-root", str(tmp_path), "--worker-limits", "{}"],
+        apply_os_sandbox=False,
+    )
+    assert code == pipeline.WORKER_OOM_EXIT
+
+
+def test_worker_cli_rejects_nonregular_result_fd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path / "result.json"
+    output.touch()
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="input.txt", mime="text/plain", size=1,
+        status="extracted", parser="test", language=None, text="x",
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(pipeline, "_open_regular_no_follow", lambda *_args, **_kwargs: 123)
+    monkeypatch.setattr(pipeline.os, "fstat", lambda _fd: SimpleNamespace(st_mode=pipeline.stat.S_IFDIR))
+    monkeypatch.setattr(pipeline.os, "close", lambda _fd: None)
+    with pytest.raises(ValueError, match="worker_output_not_regular"):
+        pipeline._cli_worker_main(
+            ["--worker-file", str(source), "--worker-root", str(tmp_path),
+             "--worker-limits", "{}", "--worker-out", str(output)],
+            apply_os_sandbox=False,
+        )
+
+
+def test_worker_cli_rethrows_non_efbig_write_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import errno
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.touch()
+    output = tmp_path / "result.json"
+    output.touch()
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="input.txt", mime="text/plain", size=1,
+        status="extracted", parser="test", language=None, text="x",
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(
+        pipeline.os,
+        "write",
+        lambda *_args: (_ for _ in ()).throw(OSError(errno.EIO, "io failure")),
+    )
+    with pytest.raises(OSError, match="io failure"):
+        pipeline._cli_worker_main(
+            ["--worker-file", str(source), "--worker-root", str(tmp_path),
+             "--worker-limits", "{}", "--worker-out", str(output)],
+            apply_os_sandbox=False,
+        )
+
+
+def test_default_pipeline_stages_and_hashes_source_in_single_parent_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline as pipeline_module
+
+    source = tmp_path / "single-pass.txt"
+    source.write_text("single parent pass", encoding="utf-8")
+    original_copy = pipeline_module._copy_to_private_readonly
+    copy_calls = 0
+
+    def count_copy(*args: object, **kwargs: object) -> tuple[str, int, bytes]:
+        nonlocal copy_calls
+        copy_calls += 1
+        return original_copy(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pipeline_module, "_copy_to_private_readonly", count_copy)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_stream_sha256_and_head",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("source was redundantly hashed")),
+    )
+    result, from_cache = IngestionPipeline().process(source, allowed_root=tmp_path)
+    assert not from_cache
+    assert result.id.startswith("sha256:")
+    assert copy_calls == 1

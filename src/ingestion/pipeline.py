@@ -33,11 +33,13 @@ from __future__ import annotations
 
 import csv
 import email
+import errno
 import hashlib
 import html
 import io
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -51,13 +53,14 @@ import time
 import zipfile
 import zlib
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from src.core.path_guard import guard_path
+from src.core.path_guard import guard_path, sanitize_for_log
 
 try:
     from defusedxml import ElementTree as DefusedET
@@ -75,6 +78,7 @@ PIPELINE_VERSION = "2.1.0"
 CHUNK_SIZE_BYTES = 65536
 MAX_WORKER_RESULT_BYTES = 5 * 1024 * 1024
 WORKER_OOM_EXIT = 75
+WORKER_OUTPUT_EFBIG_EXIT = 76
 MAX_WORKER_STDOUT_BYTES = MAX_WORKER_RESULT_BYTES  # compatibility alias
 EICAR_SIGNATURE = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
@@ -548,23 +552,31 @@ def sanitize_filename(raw_name: str) -> str:
 def _resolve_allowed_root(
     allowed_root: str | Path | None, *, allow_private_worker_root: bool = False
 ) -> Path:
-    """Resolve and reject missing or dangerously broad user-selected roots."""
+    """Resolve a selected root and reject symlinks or roots broad enough to expose secrets."""
     if allowed_root is None:
         raise ValueError("allowed_root_required: explicit user-selected root is required")
-    root = Path(allowed_root).resolve(strict=True)
+    supplied_root = Path(allowed_root).expanduser()
+    if supplied_root.is_symlink():
+        raise ValueError("allowed_root_symlink_rejected")
+    root = supplied_root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("allowed_root_not_directory")
     home = Path.home().resolve()
     system_tmp = Path(tempfile.gettempdir()).resolve()
+    project_root = Path(__file__).resolve().parents[2]
+    sensitive_roots = {
+        Path(root.anchor), home, system_tmp, project_root,
+        Path("/etc"), Path("/var"), Path("/proc"), Path("/sys"), Path("/dev"),
+        home / ".ssh", home / ".gnupg", home / ".aws", project_root / ".git",
+        project_root / "secrets",
+    }
     trusted_worker_tmp = (
         allow_private_worker_root
         and root.name.startswith("cela_ingest_sbx_")
-        and stat.S_IMODE(root.stat().st_mode) & 0o077 == 0
+        and (os.name != "posix" or stat.S_IMODE(root.stat().st_mode) & 0o077 == 0)
     )
-    if not trusted_worker_tmp and (root == Path(root.anchor) or root == home or root == system_tmp):
+    if not trusted_worker_tmp and any(sensitive == root or sensitive.is_relative_to(root) for sensitive in sensitive_roots):
         raise ValueError("allowed_root_too_broad")
-    if not trusted_worker_tmp and (home.is_relative_to(root) or system_tmp.is_relative_to(root)):
-        raise ValueError("allowed_root_contains_sensitive_root")
     return root
 
 
@@ -589,10 +601,13 @@ def _open_regular_no_follow(path: Path, flags: int, mode: int | None = None) -> 
         raise
 
 
-def _copy_to_private_readonly(source: Path, destination: Path) -> None:
+def _copy_to_private_readonly(source: Path, destination: Path) -> tuple[str, int, bytes]:
     """Copy from a no-follow regular file into an exclusive mode-0400 staged file."""
     src_fd = _open_regular_no_follow(source, os.O_RDONLY)
     dst_fd: int | None = None
+    hasher = hashlib.sha256()
+    total_size = 0
+    head = bytearray()
     try:
         source_stat = os.fstat(src_fd)
         if not stat.S_ISREG(source_stat.st_mode):
@@ -603,6 +618,10 @@ def _copy_to_private_readonly(source: Path, destination: Path) -> None:
             0o400,
         )
         while chunk := os.read(src_fd, CHUNK_SIZE_BYTES):
+            if len(head) < 4096:
+                head.extend(chunk[: 4096 - len(head)])
+            hasher.update(chunk)
+            total_size += len(chunk)
             view = memoryview(chunk)
             while view:
                 written = os.write(dst_fd, view)
@@ -611,6 +630,12 @@ def _copy_to_private_readonly(source: Path, destination: Path) -> None:
             os.fchmod(dst_fd, 0o400)
         else:  # pragma: no cover - platform fallback
             os.chmod(destination, 0o400)
+        final_stat = os.fstat(src_fd)
+        if (source_stat.st_size, source_stat.st_mtime_ns, source_stat.st_ctime_ns) != (
+            final_stat.st_size, final_stat.st_mtime_ns, final_stat.st_ctime_ns
+        ):
+            raise ValueError("staged_source_changed_during_copy")
+        return (f"sha256:{hasher.hexdigest()}", total_size, bytes(head))
     finally:
         os.close(src_fd)
         if dst_fd is not None:
@@ -626,7 +651,7 @@ def _read_worker_result(path: Path) -> bytes:
             raise ValueError("worker_output_not_regular_or_too_large")
         chunks: list[bytes] = []
         remaining = MAX_WORKER_RESULT_BYTES + 1
-        while remaining:
+        while remaining > 0:
             chunk = os.read(fd, min(CHUNK_SIZE_BYTES, remaining))
             if not chunk:
                 break
@@ -638,6 +663,41 @@ def _read_worker_result(path: Path) -> bytes:
         return payload
     finally:
         os.close(fd)
+
+
+def _validate_worker_json(payload: object) -> None:
+    """Bound untrusted JSON nesting, key count, and string lengths after decoding."""
+    if not isinstance(payload, dict):
+        raise TypeError("worker_result_schema_invalid: top-level result must be an object")
+    stack: list[tuple[object, int]] = [(payload, 0)]
+    nodes = 0
+    keys_seen = 0
+    while stack:
+        item, depth = stack.pop()
+        nodes += 1
+        if nodes > 50_000 or depth > 32:
+            raise ValueError("worker_result_schema_invalid: JSON complexity limit exceeded")
+        if isinstance(item, dict):
+            keys_seen += len(item)
+            if keys_seen > 10_000:
+                raise ValueError("worker_result_schema_invalid: too many JSON keys")
+            for key, value in item.items():
+                if not isinstance(key, str) or len(key) > 256:
+                    raise ValueError("worker_result_schema_invalid: invalid JSON key")
+                stack.append((value, depth + 1))
+        elif isinstance(item, list):
+            stack.extend((value, depth + 1) for value in item)
+        elif isinstance(item, str) and len(item) > 1_000_000:
+            raise ValueError("worker_result_schema_invalid: JSON string too long")
+        elif isinstance(item, float) and not math.isfinite(item):
+            raise ValueError("worker_result_schema_invalid: non-finite JSON number")
+        elif item is not None and not isinstance(item, (str, int, float, bool)):
+            raise ValueError("worker_result_schema_invalid: unsupported JSON value")
+    warnings = payload.get("warnings", [])
+    if not isinstance(warnings, list) or len(warnings) > 1024 or any(
+        not isinstance(warning, str) or len(warning) > 4096 for warning in warnings
+    ):
+        raise ValueError("worker_result_schema_invalid: warning limit exceeded")
 
 
 def _stream_sha256_and_head(path: Path) -> tuple[str, int, bytes]:
@@ -828,7 +888,11 @@ def safe_xml_fromstring(
     """
     active = limits or IngestionLimits()
     if isinstance(xml_bytes, memoryview):
-        xml_bytes = bytes(xml_bytes)
+        view = xml_bytes
+        try:
+            xml_bytes = bytes(view)
+        finally:
+            view.release()
     if len(xml_bytes) > active.max_xml_bytes:
         raise ValueError(
             f"xml_bomb_size_exceeded: حجم XML ({len(xml_bytes)}) يتجاوز الحد ({active.max_xml_bytes})"
@@ -1105,12 +1169,13 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
                 self._skip_depth -= 1
             return
         if tag_lower in _ALLOWED_SVG_HTML_TAGS and tag_lower not in {"br", "hr"} and tag_lower in self._open_tags:
-            while self._open_tags:
+            while self._open_tags and self._open_tags[-1] != tag_lower:
                 opened = self._open_tags.pop()
                 canonical = {"lineargradient": "linearGradient", "radialgradient": "radialGradient", "clippath": "clipPath"}.get(opened, opened)
                 self.output.append(f"</{canonical}>")
-                if opened == tag_lower:
-                    break
+            opened = self._open_tags.pop()
+            canonical = {"lineargradient": "linearGradient", "radialgradient": "radialGradient", "clippath": "clipPath"}.get(opened, opened)
+            self.output.append(f"</{canonical}>")
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth == 0:
@@ -1744,18 +1809,23 @@ def ingest_file_isolated(
     limits: IngestionLimits | None = None,
     timeout_seconds: float | None = None,
     _worker_cmd: Sequence[str] | None = None,
+    _staged_identity: tuple[str, int, bytes] | None = None,
 ) -> IngestionResult:
     """Run ingestion in a private staging directory; ``_worker_cmd`` is a test-only seam."""
     active_limits = limits or IngestionLimits()
-    root = _resolve_allowed_root(allowed_root)
+    root = _resolve_allowed_root(
+        allowed_root, allow_private_worker_root=_staged_identity is not None
+    )
     raw_path = Path(file_path)
     guarded_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
     safe_path = guarded_path.resolve(strict=True)
     if not safe_path.is_relative_to(root):
         raise ValueError("file_outside_allowed_root_after_realpath")
     clean_name = sanitize_filename(safe_path.name)
-    file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
-    mime, warnings = detect_magic_mime(head, clean_name)
+    file_id = "sha256:pending"
+    size_bytes = 0
+    mime = "application/octet-stream"
+    warnings: list[str] = []
     effective_timeout = timeout_seconds if timeout_seconds is not None else active_limits.parser_timeout_seconds
     repo_root = str(Path(__file__).resolve().parent.parent.parent)
     worker_limits = asdict(active_limits)
@@ -1787,14 +1857,35 @@ def ingest_file_isolated(
         except subprocess.TimeoutExpired:
             logger.warning("worker process remained alive after bounded kill wait id=%s", file_id)
 
-    with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as isolated_cwd:
-        worker_file = Path(isolated_cwd) / clean_name
+    if _staged_identity is not None:
+        staged_stat_fd = _open_regular_no_follow(safe_path, os.O_RDONLY)
+        try:
+            staged_stat = os.fstat(staged_stat_fd)
+            if (
+                not stat.S_ISREG(staged_stat.st_mode)
+                or (os.name == "posix" and stat.S_IMODE(staged_stat.st_mode) != 0o400)
+                or staged_stat.st_size != _staged_identity[1]
+            ):
+                raise ValueError("pre_staged_input_invalid")
+        finally:
+            os.close(staged_stat_fd)
+        isolated_dir_context = nullcontext(str(root))
+    else:
+        isolated_dir_context = tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_")
+
+    with isolated_dir_context as isolated_cwd:
+        if _staged_identity is None:
+            os.chmod(isolated_cwd, 0o700)
+            worker_file = Path(isolated_cwd) / clean_name
+        else:
+            worker_file = safe_path
         out_path = Path(isolated_cwd) / "result.json"
         try:
-            _copy_to_private_readonly(guarded_path, worker_file)
-            copied_id, copied_size, _ = _stream_sha256_and_head(worker_file)
-            if copied_id != file_id or copied_size != size_bytes:
-                return blocked("input_changed_during_staging")
+            if _staged_identity is None:
+                file_id, size_bytes, head = _copy_to_private_readonly(guarded_path, worker_file)
+            else:
+                file_id, size_bytes, head = _staged_identity
+            mime, warnings = detect_magic_mime(head, clean_name)
             out_fd = _open_regular_no_follow(
                 out_path,
                 os.O_CREAT | os.O_EXCL | os.O_WRONLY,
@@ -1838,6 +1929,8 @@ def ingest_file_isolated(
                     code = proc.returncode
                     if code == WORKER_OOM_EXIT:
                         reason = "parser_oom"
+                    elif code == WORKER_OUTPUT_EFBIG_EXIT:
+                        reason = "worker_result_efbig"
                     elif code is not None and code < 0:
                         sig_num = -code
                         reason = "parser_oom" if sig_num in (getattr(signal, "SIGKILL", 9), getattr(signal, "SIGXCPU", 24)) else f"signal_{sig_num}"
@@ -1845,7 +1938,14 @@ def ingest_file_isolated(
                         reason = "parser_crash"
                     return blocked(reason, f"exit={code}")
                 payload_bytes = _read_worker_result(out_path)
-                result = IngestionResult.from_dict(json.loads(payload_bytes))
+                payload = json.loads(
+                    payload_bytes,
+                    parse_constant=lambda value: (_ for _ in ()).throw(
+                        ValueError(f"worker_result_nonstandard_json_constant:{value}")
+                    ),
+                )
+                _validate_worker_json(payload)
+                result = IngestionResult.from_dict(payload)
                 if result.id != file_id:
                     return blocked("worker_result_identity_mismatch")
                 return result
@@ -2302,8 +2402,8 @@ def ingest_file(
     except Exception as exc:  # noqa: BLE001 — مقصود: فشل parser يرجع إلى metadata_only ولا يسقط النظام
         logger.warning(
             "تعذّر استخراج '%s' بالمحلّل المتخصص (%s) — التحول إلى metadata_only",
-            clean_name,
-            exc,
+            sanitize_for_log(clean_name),
+            type(exc).__name__,
         )
         warnings.append(f"parser_fallback_to_metadata: {type(exc).__name__}: {exc}")
 
@@ -2395,18 +2495,31 @@ class IngestionPipeline:
         safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True).resolve(strict=True)
         if not safe_path.is_relative_to(root):
             raise ValueError("file_outside_allowed_root_after_realpath")
-        file_id, _, _ = _stream_sha256_and_head(safe_path)
-        cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
-
-        if cache_key in self._cache:
-            return (self._cache[cache_key][1], True)
-
-        result = ingest_file(
-            safe_path,
-            allowed_root=root,
-            limits=self._limits,
-            av_scanner=self._av_scanner,
-        )
+        if self._limits.isolate_in_subprocess and self._av_scanner is None:
+            with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as staging_dir:
+                os.chmod(staging_dir, 0o700)
+                staged_file = Path(staging_dir) / sanitize_filename(safe_path.name)
+                staged_identity = _copy_to_private_readonly(safe_path, staged_file)
+                cache_key = self.cache_key_for(staged_identity[0], tenant_id=tenant_id)
+                if cache_key in self._cache:
+                    return (self._cache[cache_key][1], True)
+                result = ingest_file_isolated(
+                    staged_file,
+                    allowed_root=staging_dir,
+                    limits=self._limits,
+                    _staged_identity=staged_identity,
+                )
+        else:
+            file_id, _, _ = _stream_sha256_and_head(safe_path)
+            cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
+            if cache_key in self._cache:
+                return (self._cache[cache_key][1], True)
+            result = ingest_file(
+                safe_path,
+                allowed_root=root,
+                limits=self._limits,
+                av_scanner=self._av_scanner,
+            )
         if len(self._cache) >= self._max_cache_entries:
             oldest_key = next(iter(self._cache))
             del self._cache[oldest_key]
@@ -2459,25 +2572,28 @@ def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
         )
     except MemoryError:
         return WORKER_OOM_EXIT
-    payload = res.to_dict()
-    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    if len(encoded) > MAX_WORKER_RESULT_BYTES:
-        payload["status"] = IngestionStatus.PARTIAL.value
-        payload["metadata"] = {**res.metadata, "text_truncated": True}
-        payload["warnings"] = [*res.warnings, "text_truncated: worker result capped at configured byte limit"]
-        text = res.text
-        while len(encoded) > MAX_WORKER_RESULT_BYTES and text:
-            text = text[: max(0, len(text) // 2)]
-            payload["text"] = text
-            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    try:
+        payload = res.to_dict()
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         if len(encoded) > MAX_WORKER_RESULT_BYTES:
-            payload.update({"text": "", "tables": [], "images": [],
-                            "metadata": {"text_truncated": True},
-                            "warnings": ["text_truncated: oversized structured output was removed"],
-                            "status": IngestionStatus.PARTIAL.value})
-            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        if len(encoded) > MAX_WORKER_RESULT_BYTES:
-            raise ValueError("worker_result_cannot_be_bounded")
+            payload["status"] = IngestionStatus.PARTIAL.value
+            payload["metadata"] = {**res.metadata, "text_truncated": True}
+            payload["warnings"] = [*res.warnings, "text_truncated: worker result capped at configured byte limit"]
+            text = res.text
+            while len(encoded) > MAX_WORKER_RESULT_BYTES and text:
+                text = text[: max(0, len(text) // 2)]
+                payload["text"] = text
+                encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            if len(encoded) > MAX_WORKER_RESULT_BYTES:
+                payload.update({"text": "", "tables": [], "images": [],
+                                "metadata": {"text_truncated": True},
+                                "warnings": ["text_truncated: oversized structured output was removed"],
+                                "status": IngestionStatus.PARTIAL.value})
+                encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            if len(encoded) > MAX_WORKER_RESULT_BYTES:
+                raise ValueError("worker_result_cannot_be_bounded")
+    except MemoryError:
+        return WORKER_OOM_EXIT
     if args.worker_out:
         out_path = Path(args.worker_out)
         if out_path.resolve().parent != Path(args.worker_root).resolve():
@@ -2488,9 +2604,16 @@ def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
                 raise ValueError("worker_output_not_regular")
             os.ftruncate(fd, 0)
             view = memoryview(encoded)
-            while view:
-                written = os.write(fd, view)
-                view = view[written:]
+            try:
+                while view:
+                    written = os.write(fd, view)
+                    view = view[written:]
+            except OSError as exc:
+                if exc.errno == errno.EFBIG:
+                    return WORKER_OUTPUT_EFBIG_EXIT
+                raise
+            finally:
+                view.release()
         finally:
             os.close(fd)
     else:

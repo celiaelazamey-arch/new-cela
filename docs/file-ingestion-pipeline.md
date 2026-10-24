@@ -4,7 +4,7 @@
 > يتعامل مع الصيغ المدعومة عبر محللات متخصصة ومعزولة، مع سلسلة **Fallback** تنتهي دائماً بقبول الملف
 > غير المدعوم أو التالف وتخزينه بـ `metadata_only` دون إسقاط النظام، وإخراج **JSON موحد** لكل ملف.
 >
-> الوحدة البرمجية المنفِّذة: [`src/ingestion/pipeline.py`](../src/ingestion/pipeline.py) (`PIPELINE_VERSION = "2.0.0"`) · الاختبارات الهجومية ومتعددة الصيغ: [`tests/test_ingestion.py`](../tests/test_ingestion.py).
+> الوحدة البرمجية المنفِّذة: [`src/ingestion/pipeline.py`](../src/ingestion/pipeline.py) (`PIPELINE_VERSION = "2.1.0"`) · الاختبارات الهجومية ومتعددة الصيغ: [`tests/test_ingestion.py`](../tests/test_ingestion.py).
 
 ---
 
@@ -58,11 +58,11 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
    - حماية الصور من قنابل فك الضغط (`max_image_pixels = 64,000,000` بكسل) وتحديد سقف صفحات PDF (`max_pdf_pages = 500`).
 3. **عزل المعالجة في عملية فرعية (`ingest_file_isolated` / `isolate_in_subprocess=True`):**
    - تشغيل المحلّل في عملية Python فرعية معزولة بلا صدفة (`shell=False`)، ببيئة نظيفة (`PATH=""`) وسقف زمني (`parser_timeout_seconds = 15s`) لمنع تعليق أو اختراق العملية الرئيسية.
-   - تُنسخ بايتات الإدخال إلى مجلد العامل ويُتحقق من SHA-256 قبل التحليل لمنع اختلاف الملف بين حساب الهوية وإعادة الفتح.
-   - ينسخ الأب الإدخال من ملف عادي بلا اتباع symlink إلى ملف مرحلي بصلاحية `0400` داخل مجلد خاص؛ يعيد حساب SHA-256 والحجم قبل التحليل.
-   - يكتب العامل JSON إلى ملف نتيجة محدد بسقف 5 MiB، و`RLIMIT_FSIZE` مضبوط إلى 6 MiB؛ stdout/stderr إلى `DEVNULL`. يقتطع العامل النص صراحةً عند الحاجة (`partial` + `text_truncated`). يقرأ الأب النتيجة بـ `O_NOFOLLOW` ويفحص `fstat` والحجم والمخطط والهوية؛ فشل العامل مغلقاً (`blocked`).
-   - يُرفض الجذر الواسع (`/`, `$HOME`, `/tmp`)؛ تُحل المسارات النهائية بـ `realpath` وتُفحص داخل الجذر قبل القراءة.
-   - حدود فك ZIP لكل خطوة، مع `memoryview` لتفادي نسخة تجميع ثانية، والتحقق من اكتمال DEFLATE والحجم وCRC وعدم استدعاء `flush()` غير المحدود.
+   - عندما يكون العزل مفعّلاً، ينشئ الأب ملفاً مرحلياً خاصاً بصلاحية `0400` داخل مجلد `0700`؛ يُحسب SHA-256 والحجم أثناء مرور النسخ الواحد، وتكون هذه البصمة `id` ومفتاح الكاش. يعاد استخدام staging نفسه عند تشغيل العامل؛ فلا يعيد الأب قراءة المصدر لحساب المفتاح. العامل لا يستلم مسار المصدر أو جذر المستخدم، بل مسار الملف المرحلي والجذر المؤقت الخاص فقط.
+   - يجري الكشف والفحص والاستخراج على كامل النسخة المرحلية قبل أي اقتطاع للمخرج. يكتب العامل JSON بسقف 5 MiB و`RLIMIT_FSIZE=6 MiB`؛ `stdout/stderr=DEVNULL`. عند `EFBIG` يعيد رمزاً معروفاً (`worker_result_efbig`)، وعند تجاوز حجم JSON يقتطع النص عمداً (`partial` + `text_truncated`). يقرأ الأب النتيجة بـ `O_NOFOLLOW` ويفحص `fstat` والحجم والبنية والعمق وعدد المفاتيح وأطوال السلاسل والهوية.
+   - الجذر المختار لا يكون symlink، ولا `/` أو `$HOME` أو `/tmp` ولا أباً لمجلد المشروع أو مجلدات النظام/الأسرار المعروفة؛ تُحل الجذور والملفات بـ `realpath` ويُتحقق من containment.
+   - حدود فك ZIP لكل خطوة، مع `memoryview` لتفادي نسخة تجميع ثانية؛ يحرر `safe_xml_fromstring` الـ view فور تحويله، مع التحقق من اكتمال DEFLATE والحجم وCRC وعدم استدعاء `flush()` غير المحدود.
+   - مجلد العامل المؤقت يُحذف عبر `TemporaryDirectory` حتى بعد timeout/kill؛ ويضبط `TMPDIR` و`HOME` إلى مجلد العامل.
    - موارد النظام الاختيارية تشمل `RLIMIT_NPROC`, `RLIMIT_NOFILE`, `RLIMIT_CORE=0` عند دعم المنصة.
 
 ### ثانياً: ضوابط P1 (عالية)
@@ -98,22 +98,10 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
   "mime": "image/vnd.adobe.photoshop",
   "size": 146,
   "status": "extracted",
-  "parser": "psd_header_parser",
+  "parser": "psd_header_resources",
   "language": null,
-  "text": "PSD 2480x3508 | Color: CMYK | Channels: 6 (Base: 4, Extra/Spot: 2)",
+  "text": "",
   "pages": 1,
-  "tables": [],
-  "images": [
-    {
-      "width": 2480,
-      "height": 3508,
-      "color_mode": "CMYK",
-      "channels": 6,
-      "base_channels": 4,
-      "extra_channels": 2,
-      "channel_names": ["Pantone 186 C", "White Underbase"]
-    }
-  ],
   "metadata": {
     "author": null,
     "created": null,
@@ -131,3 +119,17 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
   "warnings": []
 }
 ```
+
+---
+
+## ✅ 5. التحقق المنفذ وحدود الاستنتاج
+
+- `ruff check .`: ناجح.
+- `pytest -q`: **636 passed, 68 warnings** (تنبيهات اعتماد قديم من Qiskit وتحذير duplicate ZIP test).
+- فحوص التغطية المركزة:
+  `pytest -q tests/test_ingestion.py tests/test_path_guard_security.py --cov=src.ingestion.pipeline --cov=src.core.path_guard --cov-branch --cov-report=term-missing:skip-covered`
+  أعادت **178 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`، و`guard_path`. هذا لا يعني 100% للوحدتين بالكامل: pipeline الإجمالي 89% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.
+- `spec_check.py`, `policy_guard.py`, `secret_scan.py`, `dependency_guard.py`, و`pii_scan.py` نجحت. `dependency_guard.py` أبلغ عن غياب اختياري لـ`browser-use` من بيئة الاختبار.
+- **لم يُنتج/يُشغّل `security_audit.py`** لغياب `audit-report.json` الذي يتطلبه (تقرير `pip-audit` منفصل). لم تُنفذ مصفوفة الملفات الواقعية بعد؛ سجلها في [مصفوفة الاختبار اليدوي](file-ingestion-manual-test-matrix.md).
+- حفظ SVG الأصلي دون تغيير لم يُتحقق منه؛ طبقة `pipeline.py` تنتج المعاينة المعقّمة فقط ولا تثبت سلوك طبقة التخزين.
+- لا تُعد نتائج CI أو unit tests بديلاً عن مصفوفة الاختبار الواقعية أو مراجعة أمنية مستقلة.
