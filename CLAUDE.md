@@ -52,6 +52,7 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | استراتيجية النيش | `src/core/niche_strategy.py` | `VerticalNiche` · `NICHE_CATALOG` · `validate_positioning_claim` · `evaluate_90_day_gate` |
 | مطبعة الملابس (سلك سكرين) | `src/screen_print/engine.py` | `FilmArchiveStore` · `inspect_film_image` · `recommend_mesh_and_lpi` · `calculate_screen_print_job` |
 | دستور التشغيل (18 قاعدة) | `src/core/playbook.py` | `evaluate_golden_rule_stage` · `create_verified_backup` · `restore_and_verify_backup` · `audit_18_point_playbook` |
+| استيعاب الملفات الطبقي | `src/ingestion/pipeline.py` | `detect_magic_mime` · `detect_and_decode_text` (`cp1256`) · `sanitize_svg_or_html` · `ingest_file` · `IngestionPipeline` |
 | التنفيذ | `src/execution/sandbox.py` | `create_subprocess_exec` **بلا shell** + timeout |
 | الذاكرة | `src/core/memory.py` | JSONL append-only، خارج git |
 
@@ -176,6 +177,7 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 | [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) | أدوات الجودة والأمان والاختبار والنشر المجانية (14 فئة) — تحقق حدود 2026 وتقييم `new-cela` |
 | [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) | استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود + بوابة 90 يوماً) |
 | [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) | دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») |
+| [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md) | معمارية خط أنابيب استيعاب واستخراج الملفات الطبقي (Magic Bytes، Windows-1256، Zip-Bomb، PSD/CMYK، وJSON موحد) |
 | [`CHANGELOG.md`](CHANGELOG.md) | سجل التغييرات ودراسة حالة العميل رقم #0 (مطبعة السلك سكرين) |
 
 ---

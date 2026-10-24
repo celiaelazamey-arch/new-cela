@@ -110,12 +110,14 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مقبولة ومُدمجة في `main`** (PR #10 `3e9c2d6`) | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · دمج PR #10 ✅ | `ddda822` + `3e9c2d6` |
 | 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مقبولة** (أكدها المستخدم بطلب تشغيل `--niches` وذكر مطبعته الخاصة) | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** | `d5443dc` + `8c5cf5e` |
 | 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مقبولة** (أكدها المستخدم بطلب فتح PR #19) | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · PR #19 `CLEAN` ✅ | `006d09d` + `5be9536` |
-| 16 | **دستور التشغيل الهندسي والتجاري (18 قاعدة) + القاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + النسخ الاحتياطي وتجربة الاستعادة الفعلية + `CHANGELOG.md`** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | `docs/operating-playbook-18.md` · `src/core/playbook.py` · `CHANGELOG.md` · **504 pytest ✅** · كل الحواجز وCI ✅ | `be42949` |
+| 16 | **دستور التشغيل الهندسي والتجاري (18 قاعدة) + القاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + النسخ الاحتياطي وتجربة الاستعادة الفعلية + `CHANGELOG.md`** | ✅ **مقبولة** (اعتُمدت بتفويض المهمة 17) | `docs/operating-playbook-18.md` · `src/core/playbook.py` · `CHANGELOG.md` · **504 pytest ✅** · كل الحواجز وCI ✅ | `be42949` + `b319207` |
+| 17 | **بناء خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py`)** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | Magic Bytes · `cp1256` · `pypdf` · `DOCX` · `PSD/CMYK/DPI` · `SVG XSS/XXE` · `Zip Bomb` · **510 pytest ✅** · كل الحواجز وCI ✅ | هذا الـ commit |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 16 — تجسيد وتوثيق دستور التشغيل (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + تجربة الاستعادة الفعلية للنسخ الاحتياطية (`restore_and_verify_backup`) + `CHANGELOG.md`.
+- **المهمة النشطة:** رقم 17 — خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`upload ← detect ← scan ← route ← extract ← normalize ← store ← index`).
 - **الفرع الحالي:** `arena/3c154eae-new-cela` (مرتبط بـ **PR #19** المفتوح والجاهز للدمج إلى `main`).
-- 📜 **مرجع دستور التشغيل (18 قاعدة) الجديد:** [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) + الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + [`CHANGELOG.md`](CHANGELOG.md).
+- 📂 **محرك استيعاب الملفات الطبقي الجديد:** [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) + المرجع [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md) + اختبارات [`tests/test_ingestion.py`](tests/test_ingestion.py).
+- 📜 **مرجع دستور التشغيل (18 قاعدة):** [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) + الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + [`CHANGELOG.md`](CHANGELOG.md).
 - 👕 **محرك السلك سكرين وأفلام الطباعة:** [`src/screen_print/engine.py`](src/screen_print/engine.py) + اختبارات [`tests/test_screen_print.py`](tests/test_screen_print.py).
 - 🎯 **مرجع استراتيجية النيش العمودي:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
 - 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
@@ -170,6 +172,17 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 17: **بناء خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py`)**:
+  - **✅ المرجع المعماري الدائم [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md):** يوثّق المراحل الثمان (`upload ← detect ← scan ← route ← extract ← normalize ← store ← index`)، ومقارنة التراخيص التجارية (`pypdf` BSD مقابل `PyMuPDF` AGPL)، والضوابط الأمنية الإلزامية.
+  - **✅ المحرك البرمجي [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) + مجموعة اختبارات الصيغ المتعددة [`tests/test_ingestion.py`](tests/test_ingestion.py):**
+    1. **كشف البصمة الثنائية (`detect_magic_mime`):** يفحص `Magic Bytes` لـ `PDF`, `PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `TIFF`, `PSD (8BPS)`, `EPS (%!PS)`, `ZIP/DOCX/XLSX/PPTX`, `SQLite`, و`EXE/ELF`؛ ويُصدر تحذير `suspicious_extension_mismatch` عند تعارض الامتداد مع المحتوى الفعلي.
+    2. **حظر الملفات التنفيذية (`status="blocked"`):** يمنع تحليل أو تنفيذ `EXE / DLL / ELF / SH / BAT` ويكتفي ببصمة `sha256:` والـ `metadata`.
+    3. **دعم العربية وترميز `Windows-1256` (`detect_and_decode_text`):** يعالج ملفات الحسابات والمطابع العربية القديمة بترميز `cp1256` دون تشويه الحروف.
+    4. **استخراج `PDF` (مع كشف `scanned_pdf_needs_ocr`) و`DOCX/XLSX/PPTX` (عبر `zipfile` + `ElementTree` القياسية بلا تبعيات إضافية) و`CSV/JSON/EML`.**
+    5. **دعم ملفات التصميم والمطابع (`PSD` + صور الطباعة):** يقرأ ترويسة `PSD` الثنائية (`8BPS`: الأبعاد، عدد القنوات، ونظام الألوان `CMYK/RGB/Spot`)، ويستخرج `DPI` من الصور (ويحذّر عند `< 300 DPI`)، ويعقّم `SVG/HTML` من `XSS` و`XXE` بصفر Regex.
+    6. **حارس قنابل الضغط (`_check_zip_safety`):** يفحص الحجم بعد الفك، نسبة الضغط، عدد الملفات، عمق المجلدات، واجتياز المسارات (`..`).
+    7. **المخرج الموحد (`IngestionResult`) + عدم تكرار المعالجة (`Idempotency` بـ `sha256:`) + قبول أي صيغة غير مدعومة أو تالفة بـ `status="metadata_only"`.**
+  - **✅ التحقق:** **510 pytest ✅** (تغطية شاملة **`87.38%`**) · **92 عقداً معمارياً** و**15 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
 - **2026-10-24** — المهمة 16: **تجسيد وتوثيق دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»)**:
   - **✅ المرجع الدائم [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md):** يربط القواعد الـ 18 كاملةً بأدلة الكود الفعلية في `new-cela` (`18/18` محققة برمجياً).
   - **✅ سجل التغييرات ودراسة حالة العميل رقم #0 [`CHANGELOG.md`](CHANGELOG.md) (البند 17 — ابنِ علناً):** يوثّق دراسة حالة مطبعة الملابس (السلك سكرين) وأرشيف الأفلام وسجل الإصدارات من `0.2.0` حتى `0.5.0`.

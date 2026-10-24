@@ -132,6 +132,17 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "evaluate_30_day_activity_gate": "func",
         "audit_18_point_playbook": "func",
     },
+    "src/ingestion/pipeline.py": {
+        "IngestionStatus": "class",
+        "IngestionLimits": "class",
+        "IngestionResult": "class",
+        "IngestionPipeline": "class",
+        "sanitize_filename": "func",
+        "detect_magic_mime": "func",
+        "detect_and_decode_text": "func",
+        "sanitize_svg_or_html": "func",
+        "ingest_file": "func",
+    },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
     "scripts/pii_scan.py": {"main": "func"},
@@ -155,6 +166,7 @@ REQUIRED_DOCS = (
     "docs/devsecops-free-tools.md",
     "docs/niche-strategy-manus.md",
     "docs/operating-playbook-18.md",
+    "docs/file-ingestion-pipeline.md",
     "CHANGELOG.md",
 )
 
