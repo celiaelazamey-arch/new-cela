@@ -101,12 +101,14 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 7 | **تنفيذ التصحيحات الشاملة** (تفويض «خطّط وفكّر ونفّذ») | ✅ **منفّذة** (اعتُبرت مقبولة بتفويض المهمة 8) | **0 ثغرة في النواة** · **385 pytest ✅** · ruff ✅ · CI ✅ (بلا تحذيرات) | `4f43db9` + `c1a0675` |
 | 8 | زرع **أنماط فشل وكلاء الترميز** (12 بنداً) + **`CLAUDE.md`** + فرض القواعد آلياً | ✅ **منفّذة** | `CLAUDE.md` ✅ · 3 حواجز + pre-commit ✅ · **399 pytest ✅** · CI ✅ (16 خطوة) | `f952cba` |
 | 9 | مقارنة منصات CI/CD المجانية + **التحقق من التعارضات** + تطبيق تحسينات الأمان | ✅ **مقبولة** (دُمجت في `main` عبر PR #7) | تعارض self-hosted محسوم · **12 SHA مثبّتة** · CodeQL + SBOM + coverage ✅ · **403 pytest ✅** · CI ✅ (19 خطوة + CodeQL) | `22ca954` |
-| 10 | تحديث هوية البرانش في الوثائق الحاكمة (كانت مثبّتة على `arena/1756fb0e`) ⇒ قاعدة عامة «برانش الجلسة» + سجل البرانشات | ✅ **منفّذة — بانتظار تأكيد المستخدم** | 6 فواحص ✅ · ruff ✅ · compileall ✅ · dependency_guard صارم ✅ · **403 pytest ✅** · **CI لم يُشغَّل عمداً** (تغيير `.md` فقط ⇒ مستبعد بفلتر `paths` من المهمة 9) | `d352c43` |
-| 11 | دفعة **الوعي الوظيفي** (12 سؤالاً/جواباً: monitoring vs awareness · capability registry · drift · ذاكرة 3 طبقات · مستويات استقلالية L0–L3 · مقاييس MTTD/MTTR/معايرة · chaos tests · arbiter) | 📝 **مسجّلة — محجوبة** لحين تأكيد المهمة 10 + تفويض صريح | فحص قراءة فقط أُجري (انظر القسم 6) — **لم يُعدَّل أي كود** | — |
+| 10 | تحديث هوية البرانش في الوثائق الحاكمة (كانت مثبّتة على `arena/1756fb0e`) ⇒ قاعدة عامة «برانش الجلسة» + سجل البرانشات | ✅ **مقبولة** — أكّدها المستخدم في 2026-10-24 | 6 فواحص ✅ · ruff ✅ · compileall ✅ · dependency_guard صارم ✅ · **403 pytest ✅** · **CI لم يُشغَّل عمداً** (تغيير `.md` فقط ⇒ مستبعد بفلتر `paths` من المهمة 9) | `d352c43` |
+| 11 | دفعة **الوعي الوظيفي** (12 سؤالاً/جواباً: monitoring vs awareness · capability registry · drift · ذاكرة 3 طبقات · مستويات استقلالية L0–L3 · مقاييس MTTD/MTTR/معايرة · chaos tests · arbiter) | ✅ **منفّذة — بانتظار تأكيد المستخدم** (تفويض «زرع + تقييم + سدّ الفجوات») | 7 فواحص ✅ · ruff ✅ · compileall ✅ · **432 pytest ✅** (29 اختبار حقن جديدة) · تغطية 86% · 37 عقداً · CI على الـ remote (انظر القسم 6) | (انظر أدناه) |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 10 — تحديث هوية البرانش في الوثائق الحاكمة؛ منتهية التنفيذ، في انتظار تأكيد القبول.
-- **المهمة 11 مسجّلة ومحجوبة:** دفعة الوعي الوظيفي (12 بنداً). النمط المتوقع عند التفويض — كما في المهام 4/6/8: زرع مرجع `docs/functional-awareness-qa.md` + تقييم كل بند على الكود الفعلي + سدّ الفجوات القابلة للتنفيذ بميزانية مجانية.
+- **المهمة النشطة:** رقم 11 — دفعة الوعي الوظيفي؛ منتهية التنفيذ والتحقق، في انتظار تأكيد القبول.
+- **مرجع جديد:** [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) — الـ12 سؤالاً مُقيَّمة قبل/بعد بأدلة ملف:سطر.
+- ⚠️ **خط أحمر جديد يحرسه `policy_guard`:** الاستقلالية الافتراضية `L1` وشرط kill switch لـ L3.
+- ℹ️ `BASELINE_VERIFIED_AT` في `self_model.py` = 2026-10-24؛ **يجب تحديثه يدوياً** مع كل تحقق كامل، وإلا ستنهار تغطية نموذج الذات إلى 0% بعد 30 يوماً (وهذا مقصود: التقادم يُعلَن لا يُخفى).
 - **PR #8 مفتوح** (من برانش جلسة سابقة `arena/f26ae208`): إغلاق 4 تنبيهات CodeQL — كل الفحوص خضراء وقابل للدمج، لم يُدمج بعد.
 - **اعتبار المهام 2-7:** اعتُبرت مقبولة ضمناً بتفويض المستخدم المتكرر «نفّذ التصحيحات / القواعد».
 - 📜 **المرجع الملزم الجديد:** [`CLAUDE.md`](CLAUDE.md) — اقرأه أولاً في كل جلسة.
@@ -221,6 +223,22 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
   - ✅ **موجود:** Q3 `Capability(status=verified|declared|absent, evidence)` في `awareness/self_model.py:23-31` · Q4 verifier مستقل = `cognitive/loop.py` + سجل hash-chained `cognitive/store.py` · Q12 صدق التسمية موثّق في `docs/research/awareness.md:4-15` · Q10 JSON ذرّي في `telemetry.py` + ذاكرة JSONL بـ `compact()` في `memory.py` · Q6 جزئياً: `DEFAULT_SCOPES={fs.read}` + `ApprovalHandler` (= L0/L1 فعلياً).
   - ⚠️ **جزئي:** Q3 الثقة في `metacognition.py:estimate()` **استدلالية** (+0.35/−0.15) بلا **قياس دقة تاريخي** ولا عتبة رفض/تصعيد مُفعَّلة · Q5 الذاكرة طبقة واحدة (معجمية) بلا episodic/semantic ولا TTL · Q6 لا تعريف صريح لـ L2/L3 ولا kill switch مُسمّى.
   - ❌ **غائب:** Q8 `Capability` بلا `last_verified_at` ⇒ **لا كشف تقادم** (الفخ الأخطر حسب الدفعة) · Q7 لا MTTD/MTTR/معايرة ثقة-مقابل-صحة/نسبة قرارات معكوسة · Q9 صفر اختبارات chaos/fault-injection (`grep` فارغ) · Q11 لا arbiter ولا «مالك واحد لكل قرار».
+
+---
+
+- **2026-10-24** — **المهمة 11 نُفِّذت** بعد تأكيد المستخدم للمهمة 10 واختياره «زرع + تقييم + سدّ الفجوات». ما أُضيف:
+  - **Q8 (الفخ الأخطر):** `Capability.last_verified_at`/`ttl_days` + `is_stale()` · `SelfModel.stale()/fresh()/coverage()/mark_verified()` · `describe()` يُنزل المتقادم إلى ⏳ ويطبع التغطية · `default_self_model()` يختم بـ `BASELINE_VERIFIED_AT`.
+  - **Q4 drift:** `SelfModel.drift(root)` يفحص وجود كل ملف مُستشهَد به في الأدلة (9 مسارات في النموذج الافتراضي) ويُخرج `DriftFinding` بالاسم.
+  - **Q3/Q7 معايرة:** `src/awareness/calibration.py` — `CalibrationLedger` (JSONL، يتسامح مع الأسطر التالفة ويُحصيها) · Brier/ECE/bins · `reversal_rate`/`self_detection_rate` · `gate()` بعتبات 0.25 رفض / 0.5 تصعيد / `MIN_HISTORY=5`. **مُسلَّكة في `AgentEngine._calibrate()`** — تظهر في `TaskResult.awareness` وتسجّل بمصدر `verifier`.
+  - **Q7 مقاييس:** `src/awareness/metrics.py` — `Incident` (MTTD/MTTR) · `compute_metrics()` · `promotion_check()` بعتبات `PROMOTION_CRITERIA` لـ L1/L2/L3 («لا بيانات» = فشل).
+  - **Q6 استقلالية:** `AutonomyLevel` L0–L3 + `KillSwitch` (engage/env/file) + `IRREVERSIBLE_SCOPES` في `policy.py`؛ `evaluate(reversible=)`؛ `auto_actions` للإبلاغ؛ **L3 بلا kill switch ⇒ ValueError**؛ الافتراضي L1 لم يتغيّر.
+  - **Q11 محكّم:** `src/core/arbiter.py` — مالك ← دليل ← ثقة بفارق ≥0.15 ← تصعيد؛ `recorder` يحفظ السبب في الذاكرة.
+  - **Q5 ذاكرة:** `MemoryStore.layers()/prune_expired(ttl)/remove_contradictions()`؛ `lesson` دلالية لا تنتهي.
+  - **Q9 chaos:** `tests/test_chaos_awareness.py` — **29 اختباراً** (تقادم، ملف محذوف، سجل تالف، ثقة 0.9 بسجل 1/10، kill switch في منتصف التشغيل، L3 بلا مفتاح، MTTD/MTTR، تعارض وكلاء، TTL، تكامل المحرك، سجل يرفع استثناء).
+  - **حوكمة:** `spec_check` 22→**37 عقداً** + الوثيقة الجديدة في `REQUIRED_DOCS` · `policy_guard` فحص سابع «الاستقلالية الافتراضية L1 + kill switch» — **اختُبر بالاتجاهين** (تبديل الافتراضي إلى L3 ⇒ EXIT 1).
+  - **🐛 أخطاء اكتُشفت بالتشغيل قبل الحفظ:** (أ) 3 مخالفات ruff ISC004 (سلاسل ضمنية) في calibration/metrics؛ (ب) `@pytest.mark.asyncio` بلا plugin ⇒ استُبدل بـ `asyncio.run` كبقية الاختبارات؛ (ج) ترتيب استيراد I001. كلها صُحِّحت.
+  - **ناقص بصراحة (مكتوب في الوثيقة):** التلخيص الدوري للذاكرة (يحتاج نموذجاً)، التناقض الدلالي، chaos على مستوى العملية (قتل subprocess/امتلاء قرص).
+  - **التحقق المحلي ببيئة مطابقة لـ CI:** 7 فواحص ✅ · ruff ✅ · compileall ✅ · dependency_guard صارم ✅ · **432 pytest ✅** · تغطية **86%**.
 
 ---
 

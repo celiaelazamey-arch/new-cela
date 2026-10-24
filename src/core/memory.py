@@ -29,7 +29,7 @@ import threading
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from src.core.schemas import MemoryEntry, MemoryKind, StepRecord, StepStatus
@@ -427,6 +427,86 @@ class MemoryStore:
             except OSError as exc:
                 logger.warning("تعذّر حذف ملف الذاكرة (%s).", type(exc).__name__)
 
+    # ---------------- الطبقات وTTL (ذاكرة لا تتضخم) ----------------
+    # الطبقة الدلالية (قواعد ملخّصة) لا تنتهي صلاحيتها؛ الطبقة الحدثية تنتهي.
+    SEMANTIC_KINDS: frozenset[MemoryKind] = frozenset({MemoryKind.LESSON})
+
+    def layers(self) -> dict[str, int]:
+        """
+        توزيع الذاكرة على طبقتيها المخزَّنتين (الطبقة القصيرة = حالة الجلسة في
+        `CognitiveState`/`WorkspaceState`، ولا تُحفظ هنا عمداً).
+          • episodic: حدث ← فعل ← نتيجة (success/failure/fact) — تخضع لـ TTL.
+          • semantic: قواعد ملخّصة (lesson) — تبقى حتى تُنقض صراحةً.
+        """
+        with self._lock:
+            entries = list(self._entries)
+        semantic = sum(1 for item in entries if item.kind in self.SEMANTIC_KINDS)
+        return {"episodic": len(entries) - semantic, "semantic": semantic}
+
+    def prune_expired(self, ttl_days: int, now: datetime | None = None) -> int:
+        """
+        يحذف الذكريات الحدثية الأقدم من `ttl_days`؛ الدلالية (lesson) تُستثنى.
+
+        ذكرى بلا `created_at` صالح تُعدّ منتهية (لا نحتفظ بما لا نعرف عمره).
+        يعيد عدد المحذوف ويضغط الملف عند الحاجة.
+        """
+        if ttl_days <= 0:
+            return 0
+        reference = now or datetime.now(UTC)
+        cutoff = reference - timedelta(days=ttl_days)
+        with self._lock:
+            kept: list[MemoryEntry] = []
+            removed = 0
+            for item in self._entries:
+                if item.kind in self.SEMANTIC_KINDS:
+                    kept.append(item)
+                    continue
+                created = _parse_created(item.created_at)
+                if created is not None and created >= cutoff:
+                    kept.append(item)
+                else:
+                    removed += 1
+            if removed:
+                self._entries = kept
+                self._ids = {item.id for item in kept}
+                self._needs_compaction = True
+        if removed:
+            self.maybe_compact()
+        return removed
+
+    def remove_contradictions(self) -> int:
+        """
+        يزيل التناقض الأبسط والأشيع: `failure` لمهمة ومحتوى لهما `success` **أحدث**.
+
+        لا يحاول فهم التناقض الدلالي (ذلك يحتاج نموذجاً) — فقط ما يمكن إثباته
+        من البيانات نفسها. يعيد عدد المحذوف.
+        """
+        with self._lock:
+            latest_success: dict[tuple[str, str], datetime] = {}
+            for item in self._entries:
+                if item.kind is MemoryKind.SUCCESS:
+                    created = _parse_created(item.created_at)
+                    if created is not None:
+                        key = (item.task, item.content)
+                        latest_success[key] = max(created, latest_success.get(key, created))
+            kept: list[MemoryEntry] = []
+            removed = 0
+            for item in self._entries:
+                if item.kind is MemoryKind.FAILURE:
+                    created = _parse_created(item.created_at)
+                    newer = latest_success.get((item.task, item.content))
+                    if newer is not None and (created is None or newer > created):
+                        removed += 1
+                        continue
+                kept.append(item)
+            if removed:
+                self._entries = kept
+                self._ids = {item.id for item in kept}
+                self._needs_compaction = True
+        if removed:
+            self.maybe_compact()
+        return removed
+
     def compact(self) -> None:
         """يعيد كتابة الملف بإزالة التكرار والقديم — كتابة ذرّية عبر ملف مؤقت."""
         if self.path is None:
@@ -509,6 +589,16 @@ class MemoryStore:
 
     def __repr__(self) -> str:  # pragma: no cover - تمثيل تشخيصي
         return f"MemoryStore(path={self.path!r}, entries={len(self)})"
+
+
+def _parse_created(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _recency_boost(entry: MemoryEntry) -> float:
