@@ -24,6 +24,7 @@ on:
       - 'requirements*.txt'
   schedule:
     - cron: '17 3 * * *'  # يومياً 03:17 UTC
+  workflow_dispatch:
 
 # الأقل امتيازاً: قراءة فقط افتراضياً، والكتابة تُمنح للjob المحتاج فقط.
 permissions:
@@ -77,7 +78,7 @@ jobs:
 
   dependency-audit:
     name: Daily Dependency Audit (core)
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
