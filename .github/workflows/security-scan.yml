@@ -1,0 +1,76 @@
+name: Security Scan (CodeQL + Dependency Review)
+
+# فحص أمني مجاني بالكامل لمستودع عام:
+#   • Codeql: SAST لـ Python + GitHub Actions workflows (مجاني للـ public repos).
+#   • Dependency Review: يمنع إدخال تبعية ذات ثغرة عبر Pull Request.
+#
+# ✅ لماذا الآن: واجهة GitHub Security للجلسة تُرجع 403 على code-scanning/alerts،
+# لكن CodeQL على مستودع عام مجاني ويعمل بصلاحيات الـ workflow نفسه، فيوفّر
+# طبقة SAST مستقلة عن قيد التوكن. راجع docs/ci-cd-free-tier.md.
+#
+# 🔒 كل Actions مثبّتة بـ commit SHA كامل (قاعدة supply chain).
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - '**.py'
+      - '.github/workflows/**'
+      - 'requirements*.txt'
+  pull_request:
+    paths:
+      - '**.py'
+      - '.github/workflows/**'
+      - 'requirements*.txt'
+  schedule:
+    - cron: '17 3 * * 1'  # أسبوعياً — الاثنين 03:17 UTC
+
+# الأقل امتيازاً: قراءة فقط افتراضياً، والكتابة تُمنح للjob المحتاج فقط.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (SAST)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      security-events: write  # مطلوب لرفع نتائج CodeQL فقط
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python', 'actions']
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6 — SHA مثبّت
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1 — SHA مثبّت
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1 — SHA مثبّت
+
+  dependency-review:
+    name: Dependency Review (PR only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6 — SHA مثبّت
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0 — SHA مثبّت
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

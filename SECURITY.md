@@ -1,21 +1,123 @@
-# Security Policy
+# Security Policy — new-cela
 
-## Supported Versions
+> آخر مراجعة: 2026-10-23 · المرجع التشغيلي: [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md)
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+## 1. نطاق الدعم
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| المكوّن | الحالة | ملاحظة |
+|---|---|---|
+| البرانش `arena/1756fb0e-new-cela` | ✅ مدعوم | برانش العمل النشط |
+| `main` | ✅ مدعوم | خط الإنتاج |
+| Python 3.11 | ✅ مدعوم | هو ما تختبره بوابة الجودة |
+| إصدارات الحزم | ⚠️ بلا lockfile | التبعيات مُعرّفة بحدود دنيا `>=` — راجع القسم 4 |
 
-## Reporting a Vulnerability
+المشروع يعمل بالكامل على **موارد مجانية**: لا مفاتيح مدفوعة، لا خدمات باشتراك.
+قاعدة بيانات الاستشارات المستخدمة في التدقيق (`pip-audit` / PyPI Advisory DB) عامة ومجانية.
 
-Use this section to tell people how to report a vulnerability.
+---
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+## 2. الإبلاغ عن ثغرة
+
+لا تفتح Issue عاماً لثغرة أمنية. استخدم **GitHub Security Advisories** الخاصة بالمستودع:
+`https://github.com/celiaelazamey-arch/new-cela/security/advisories/new`
+
+المعلومات المطلوبة في البلاغ: الحزمة والإصدار، خطوة إعادة الإنتاج، الأثر المتوقع،
+واقتراح الإصلاح إن وُجد. **لا تضع أي مفتاح API أو محتوى `.env` في البلاغ.**
+
+---
+
+## 3. التنبيه (Security and quality · 1) — ✅ **مُعالَج بالعزل المعماري**
+
+> **تحديث 2026-10-23:** بعد فكّ ارتباط `LLMRouter` عن `browser_use.llm`،
+> نُقلت ميزة المتصفح إلى ملف اختياري. **التثبيت الافتراضي أصبح بلا ثغرات
+> معروفة** (`pip-audit` على `requirements.txt` + الإضافات: **0 حزمة متأثرة**،
+> 58 حزمة محلولة). التنبيه ما زال موجوداً **فقط** في الملف الاختياري
+> `requirements-browser.txt` الذي لا يُثبَّت افتراضياً.
+
+### التشخيص الأصلي (للسجل التاريخي)
+
+| العنصر | القيمة |
+|---|---|
+| الحزمة المتأثرة | `aiohttp` |
+| الإصدار المحلول | `3.12.15` |
+| المصدر | تبعية **غير مباشرة** (transitive) عبر `browser-use 0.9.7` |
+| نوع التثبيت | **pin حصري** `Requires-Dist: aiohttp==3.12.15` |
+| عدد الإدخالات المكتشفة | 72 إدخالاً في `pip-audit` (بها معرّفات مكرّرة) |
+| إصدارات الإصلاح المقترحة | `3.13.3` / `3.13.4` / `3.14.4` |
+| مستوى الخطورة | غالبيتها DoS / تسريب معلومات / request smuggling |
+
+### كيف تم اكتشافه رغم قيد الصلاحية
+
+واجهة GitHub Security تُظهر التنبيه، لكن واجهة API الخاصة بالجلسة تُرجع
+`403 Resource not accessible by integration` على `dependabot/alerts`،
+`code-scanning/alerts` و`secret-scanning/alerts` (توكن تثبيت محدود الصلاحية).
+
+تم تجاوز القيد **دون رفع أي صلاحية** عبر مسار بديل مجاني:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install pip-audit          # من PyPI — مجاني، بلا مفتاح
+.venv/bin/pip-audit -r requirements.txt -r requirements-integrations.txt \
+                     -r requirements-ocr.txt -r requirements-quantum.txt \
+                     --format json > audit-report.json || true
+python scripts/security_audit.py audit-report.json
+```
+
+كما أُجري تحقّق متبادل مع قاعدة استشارات GitHub العامة (`/advisories`، متاحة بلا صلاحية خاصة).
+
+### مسارات جُرّبت — ثم الحل الذي نجح
+
+| المسار المُجرَّب | النتيجة الفعلية | القرار |
+|---|---|---|
+| رفع `aiohttp` إلى `>=3.14.4` مباشرة | `ResolutionImpossible` — التعارض مع `browser-use 0.9.7` الذي يثبّت `aiohttp==3.12.15` | ❌ مرفوض |
+| ترقية `browser-use` إلى `0.13.11` | يثبّت `aiohttp==3.14.3` (دون `3.14.4`) **ويُدخل عشرات الثغرات في `pillow 12.3.0`**، كما يكسر واجهة `browser_use.llm` | ❌ مرفوض |
+| فصل `browser-use` كما هو (قبل فكّ الارتباط) | كان سيعطّل نواة التوجيه لأنها تعتمد على `browser_use.llm` | ❌ مرفوض حينها |
+| ✅ **فكّ الارتباط أولاً ثم العزل** | أُعيد كتابة `LLMRouter` بعملاء `google-genai`/`groq` الرسميين (مُعلَنون فعلاً في `requirements.txt`)، مع **الحفاظ على العقد الخارجي**؛ ثم نُقل `browser-use` إلى `requirements-browser.txt` الاختياري | ✅ **مُنفَّذ 2026-10-23** |
+
+### الوضع الحالي (مُتحقَّق بالتشغيل)
+
+```
+pip-audit -r requirements.txt ... (بدون المتصفح)
+  → 58 حزمة محلولة | 0 حزمة متأثرة ✅
+
+pip-audit -r requirements.txt -r requirements-browser.txt
+  → aiohttp 3.12.15 | 72 إدخالاً  (معزول في الملف الاختياري)
+```
+
+**384 اختباراً ناجحاً** بعد التغيير المعماري (370 سابقة + 14 جديدة للقاطع/الصحة/التنقيح).
+
+### التخفيف المطبَّق الآن
+
+1. **فصل افتراضي آمن** — `requirements.txt` لا يجلب `aiohttp` إطلاقاً.
+   ميزة المتصفح تتطلب تركيباً صريحاً: `pip install -r requirements-browser.txt`.
+   و`get_chat_model()` تُحمَّل عند الطلب فقط وترفع رسالة إرشادية إن غابت الحزمة.
+2. **بوابة تدقيق صارمة في CI** — خطوة `Dependency Security Audit (core, strict)`
+   تُفشل البناء لو ظهرت أي ثغرة في التثبيت الأساسي (حماية من regression).
+   والملف الاختياري يُفحص informational فقط.
+3. **تحقّق بالإصدار** — الاستشارات التي لا تمس الإصدارات المحلولة تُستبعد صراحةً:
+   `httpx` (`<0.23.0` مقابل `0.28.1`)، `qiskit` (`<=1.4.1` مقابل `1.4.6`)،
+   `pypdf` (`<6.21.2` مقابل `6.21.2`) — جميعها **غير مؤثّرة**.
+4. **تقليل التعرّض** — لا تُشغِّل وحدة المتصفح أمام شبكة غير موثوقة دون عزل إضافي؛
+   ولا تُثبّت الملف الاختياري في بيئة إنتاج حساسة قبل صدور إصدار يُصلح `aiohttp`.
+
+### ما تبقّى (مراقبة upstream)
+
+الترقية إلى `browser-use` أحدث ممكنة فور صدور إصدار يُثبّت `aiohttp>=3.14.4`
+دون إدخال ثغرات بديلة في `pillow`. يُراقَب عبر خطوة التدقيق المعلوماتية في CI.
+
+---
+
+## 4. ملاحظة معمارية: غياب ملف القفل
+
+لا يوجد `lockfile` في المستودع؛ جميع التبعيات مُعرّفة بحدود دنيا (`>=`).
+هذا يعني أن نتيجة `pip-audit` تعتمد على أحدث إصدار متاح وقت الحل، وقد تتغير
+بين تشغيل وآخر حتى بدون تغيير في الكود. التوصية: اعتماد `uv.lock` أو
+`pip-compile` لاحقاً لضمان قابلية التكرار — **لم يُنفَّذ بعد**.
+
+---
+
+## 5. ما لا يُرفع أبداً
+
+`.env`، مفاتيح API، `.agent_memory/`، `.agent_runs/`، `.agent_knowledge/`،
+ومخرجات التشغيل المؤقتة — كلها مستبعدة عبر `.gitignore`. راجع
+[`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) للقائمة الكاملة.
