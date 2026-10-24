@@ -42,6 +42,7 @@ import os
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -49,7 +50,7 @@ import tempfile
 import time
 import zipfile
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from html.parser import HTMLParser
@@ -72,7 +73,9 @@ logger = logging.getLogger(__name__)
 
 PIPELINE_VERSION = "2.1.0"
 CHUNK_SIZE_BYTES = 65536
-MAX_WORKER_STDOUT_BYTES = 5 * 1024 * 1024
+MAX_WORKER_RESULT_BYTES = 5 * 1024 * 1024
+WORKER_OOM_EXIT = 75
+MAX_WORKER_STDOUT_BYTES = MAX_WORKER_RESULT_BYTES  # compatibility alias
 EICAR_SIGNATURE = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 AvScannerCallable = Callable[[Path], tuple[bool, str | None]]
@@ -542,6 +545,101 @@ def sanitize_filename(raw_name: str) -> str:
     return result or "unnamed_file"
 
 
+def _resolve_allowed_root(
+    allowed_root: str | Path | None, *, allow_private_worker_root: bool = False
+) -> Path:
+    """Resolve and reject missing or dangerously broad user-selected roots."""
+    if allowed_root is None:
+        raise ValueError("allowed_root_required: explicit user-selected root is required")
+    root = Path(allowed_root).resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError("allowed_root_not_directory")
+    home = Path.home().resolve()
+    system_tmp = Path(tempfile.gettempdir()).resolve()
+    trusted_worker_tmp = (
+        allow_private_worker_root
+        and root.name.startswith("cela_ingest_sbx_")
+        and stat.S_IMODE(root.stat().st_mode) & 0o077 == 0
+    )
+    if not trusted_worker_tmp and (root == Path(root.anchor) or root == home or root == system_tmp):
+        raise ValueError("allowed_root_too_broad")
+    if not trusted_worker_tmp and (home.is_relative_to(root) or system_tmp.is_relative_to(root)):
+        raise ValueError("allowed_root_contains_sensitive_root")
+    return root
+
+
+def _open_regular_no_follow(path: Path, flags: int, mode: int | None = None) -> int:
+    """Open a regular file without following symlinks (with identity check on Windows)."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    binary = getattr(os, "O_BINARY", 0)
+    before = path.lstat() if not nofollow and not (flags & os.O_CREAT) else None
+    if before is not None and (stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode)):
+        raise ValueError("path_not_regular_or_symlink")
+    open_flags = flags | nofollow | binary
+    fd = os.open(path, open_flags) if mode is None else os.open(path, open_flags, mode)
+    try:
+        after = os.fstat(fd)
+        if not stat.S_ISREG(after.st_mode):
+            raise ValueError("opened_path_not_regular")
+        if before is not None and (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise ValueError("path_changed_during_open")
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _copy_to_private_readonly(source: Path, destination: Path) -> None:
+    """Copy from a no-follow regular file into an exclusive mode-0400 staged file."""
+    src_fd = _open_regular_no_follow(source, os.O_RDONLY)
+    dst_fd: int | None = None
+    try:
+        source_stat = os.fstat(src_fd)
+        if not stat.S_ISREG(source_stat.st_mode):
+            raise ValueError("staged_source_not_regular_file")
+        dst_fd = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0),
+            0o400,
+        )
+        while chunk := os.read(src_fd, CHUNK_SIZE_BYTES):
+            view = memoryview(chunk)
+            while view:
+                written = os.write(dst_fd, view)
+                view = view[written:]
+        if hasattr(os, "fchmod"):
+            os.fchmod(dst_fd, 0o400)
+        else:  # pragma: no cover - platform fallback
+            os.chmod(destination, 0o400)
+    finally:
+        os.close(src_fd)
+        if dst_fd is not None:
+            os.close(dst_fd)
+
+
+def _read_worker_result(path: Path) -> bytes:
+    """Open worker output without following symlinks and read at most cap + 1 bytes."""
+    fd = _open_regular_no_follow(path, os.O_RDONLY)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_WORKER_RESULT_BYTES:
+            raise ValueError("worker_output_not_regular_or_too_large")
+        chunks: list[bytes] = []
+        remaining = MAX_WORKER_RESULT_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(CHUNK_SIZE_BYTES, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > MAX_WORKER_RESULT_BYTES:
+            raise ValueError("worker_output_too_large")
+        return payload
+    finally:
+        os.close(fd)
+
+
 def _stream_sha256_and_head(path: Path) -> tuple[str, int, bytes]:
     """حساب بصمة SHA-256 وحجم الملف وقراءة أول 4096 بايت بتدفق مجزّأ (Streaming)."""
     h = hashlib.sha256()
@@ -718,7 +816,7 @@ def scan_for_malware(
 
 
 def safe_xml_fromstring(
-    xml_bytes: bytes,
+    xml_bytes: bytes | memoryview,
     *,
     limits: IngestionLimits | None = None,
 ) -> ET.Element:
@@ -729,6 +827,8 @@ def safe_xml_fromstring(
       - يستخدم `defusedxml` عند توفره، ويتحقق تدفقياً من `max_xml_depth` و`max_xml_elements`.
     """
     active = limits or IngestionLimits()
+    if isinstance(xml_bytes, memoryview):
+        xml_bytes = bytes(xml_bytes)
     if len(xml_bytes) > active.max_xml_bytes:
         raise ValueError(
             f"xml_bomb_size_exceeded: حجم XML ({len(xml_bytes)}) يتجاوز الحد ({active.max_xml_bytes})"
@@ -1085,14 +1185,14 @@ def _safe_read_zip_entry(
     limits: IngestionLimits,
     cumulative_bytes: list[int],
     forbid_nested_archive: bool = False,
-) -> bytes:
+) -> memoryview:
     """
     قراءة ملف من داخل أرشيف `ZIP` بتدفق مجزّأ ومحدود الذاكرة (`Streaming Read Cap` — P0):
       1. يرفض طرق الضغط غير القياسية (`bzip2`, `lzma`, `deflate64`) وحجوم `ZIP64` المفرطة.
       2. يدعم `Data Descriptors` الشرعية في ملفات `Office / LibreOffice / Google Docs` (`lfh_uncomp == 0`)،
          مع كشف الترويسات المزوّرة عندما تذكر `LFH` حجماً غير صفري يتعارض مع `Central Directory`.
-      3. يفك الضغط عبر `zlib.decompressobj(-15)` بسقف `max_length` صارم بحيث لا يخصّص في الذاكرة
-         أكثر من الميزانية المتبقية حتى لو كانت ترويسة `ZIP` مزوّرة.
+      3. كل خطوة فك لا تتجاوز `min(CHUNK_SIZE_BYTES, info.file_size - entry_read + 1)`؛ ويُجمع الناتج
+         في `BytesIO` ويُعاد كـ `memoryview` لتجنّب نسخة `join/getvalue` إضافية.
       4. يكشف ويحظر الأرشيفات المتداخلة (`Nested Archives`) عند تفعيل `forbid_nested_archive`.
     """
     if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
@@ -1198,7 +1298,7 @@ def _safe_read_zip_entry(
     if (crc & 0xFFFFFFFF) != (info.CRC & 0xFFFFFFFF):
         raise zipfile.BadZipFile("archive_entry_crc_mismatch")
 
-    return output.getvalue()
+    return output.getbuffer()
 
 
 def _check_zip_safety(
@@ -1617,7 +1717,8 @@ def _apply_worker_rlimits(max_memory_mb: int, timeout_seconds: float) -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_sec, cpu_sec))
         mem_bytes = max(1024, max_memory_mb) * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+        result_file_limit = MAX_WORKER_RESULT_BYTES + 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_FSIZE, (result_file_limit, result_file_limit))
         for limit_name, cap in (("RLIMIT_NPROC", 32), ("RLIMIT_NOFILE", 64), ("RLIMIT_CORE", 0)):
             resource_id = getattr(resource, limit_name, None)
             if resource_id is not None:
@@ -1642,14 +1743,16 @@ def ingest_file_isolated(
     allowed_root: str | Path | None = None,
     limits: IngestionLimits | None = None,
     timeout_seconds: float | None = None,
+    _worker_cmd: Sequence[str] | None = None,
 ) -> IngestionResult:
-    """Run ingestion in an isolated worker; worker input and JSON output are staged locally."""
+    """Run ingestion in a private staging directory; ``_worker_cmd`` is a test-only seam."""
     active_limits = limits or IngestionLimits()
-    if allowed_root is None:
-        raise ValueError("allowed_root_required: explicit user-selected root is required")
+    root = _resolve_allowed_root(allowed_root)
     raw_path = Path(file_path)
-    root = Path(allowed_root).resolve()
-    safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
+    guarded_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
+    safe_path = guarded_path.resolve(strict=True)
+    if not safe_path.is_relative_to(root):
+        raise ValueError("file_outside_allowed_root_after_realpath")
     clean_name = sanitize_filename(safe_path.name)
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
     mime, warnings = detect_magic_mime(head, clean_name)
@@ -1659,6 +1762,7 @@ def ingest_file_isolated(
     worker_limits["isolate_in_subprocess"] = False
 
     def blocked(reason: str, detail: str | None = None) -> IngestionResult:
+        logger.warning("ingestion worker blocked id=%s reason=%s", file_id, reason)
         if detail:
             warnings.append(f"{reason}: {detail[:500]}")
         return IngestionResult(
@@ -1669,20 +1773,52 @@ def ingest_file_isolated(
             warnings=warnings,
         )
 
+    def terminate_worker(proc: subprocess.Popen[bytes]) -> None:
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:  # pragma: no cover - exercised on Windows CI
+                proc.kill()
+        except (OSError, AttributeError) as kill_exc:
+            logger.debug("process-group kill unavailable: %s", kill_exc)
+            proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.warning("worker process remained alive after bounded kill wait id=%s", file_id)
+
     with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as isolated_cwd:
         worker_file = Path(isolated_cwd) / clean_name
         out_path = Path(isolated_cwd) / "result.json"
         try:
-            shutil.copyfile(safe_path, worker_file)
+            _copy_to_private_readonly(guarded_path, worker_file)
             copied_id, copied_size, _ = _stream_sha256_and_head(worker_file)
             if copied_id != file_id or copied_size != size_bytes:
                 return blocked("input_changed_during_staging")
-            cmd_clean = [
-                sys.executable, "-m", "src.ingestion.pipeline",
-                "--worker-file", str(worker_file), "--worker-root", isolated_cwd,
-                "--worker-out", str(out_path),
-                "--worker-limits", json.dumps(worker_limits),
-            ]
+            out_fd = _open_regular_no_follow(
+                out_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            os.close(out_fd)
+            if _worker_cmd is None:
+                cmd_clean = [
+                    sys.executable, "-m", "src.ingestion.pipeline",
+                    "--worker-file", str(worker_file), "--worker-root", isolated_cwd,
+                    "--worker-out", str(out_path),
+                    "--worker-limits", json.dumps(worker_limits),
+                ]
+            else:
+                substitutions = {
+                    "{worker_file}": str(worker_file), "{worker_root}": isolated_cwd,
+                    "{worker_out}": str(out_path), "{worker_limits}": json.dumps(worker_limits),
+                }
+                cmd_clean = []
+                for original_arg in _worker_cmd:
+                    arg = original_arg
+                    for key, value in substitutions.items():
+                        arg = arg.replace(key, value)
+                    cmd_clean.append(arg)
             proc: subprocess.Popen[bytes] | None = None
             try:
                 proc = subprocess.Popen(
@@ -1696,37 +1832,28 @@ def ingest_file_isolated(
                 try:
                     proc.wait(timeout=effective_timeout)
                 except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except (OSError, AttributeError) as kill_exc:
-                        logger.debug("killpg unavailable during worker timeout: %s", kill_exc)
-                        proc.kill()
-                    proc.wait(timeout=5)
-                    return blocked("parser_subprocess_timeout", f"timeout={effective_timeout}s")
+                    terminate_worker(proc)
+                    return blocked("parser_timeout", f"timeout={effective_timeout}s")
                 if proc.returncode != 0:
-                    return blocked("parser_subprocess_failed", f"exit={proc.returncode}")
-                if not out_path.is_file() or out_path.stat().st_size > MAX_WORKER_STDOUT_BYTES:
-                    return blocked("worker_output_missing_or_too_large")
-                with out_path.open("rb") as result_file:
-                    payload_bytes = result_file.read(MAX_WORKER_STDOUT_BYTES + 1)
-                if len(payload_bytes) > MAX_WORKER_STDOUT_BYTES:
-                    return blocked("worker_output_missing_or_too_large")
+                    code = proc.returncode
+                    if code == WORKER_OOM_EXIT:
+                        reason = "parser_oom"
+                    elif code is not None and code < 0:
+                        sig_num = -code
+                        reason = "parser_oom" if sig_num in (getattr(signal, "SIGKILL", 9), getattr(signal, "SIGXCPU", 24)) else f"signal_{sig_num}"
+                    else:
+                        reason = "parser_crash"
+                    return blocked(reason, f"exit={code}")
+                payload_bytes = _read_worker_result(out_path)
                 result = IngestionResult.from_dict(json.loads(payload_bytes))
                 if result.id != file_id:
                     return blocked("worker_result_identity_mismatch")
                 return result
             except Exception as exc:  # noqa: BLE001
                 if proc is not None and proc.poll() is None:
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except (OSError, AttributeError) as kill_exc:
-                        logger.debug("killpg unavailable during worker cleanup: %s", kill_exc)
-                        proc.kill()
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        logger.warning("worker process did not exit after SIGKILL within five seconds")
-                return blocked("parser_subprocess_error", f"{type(exc).__name__}: {exc}")
+                    terminate_worker(proc)
+                reason = "worker_result_invalid" if proc is not None and proc.returncode == 0 else "parser_crash"
+                return blocked(reason, f"{type(exc).__name__}: {exc}")
         except Exception as exc:  # noqa: BLE001
             return blocked("parser_subprocess_staging_error", f"{type(exc).__name__}: {exc}")
 
@@ -1737,6 +1864,7 @@ def ingest_file(
     allowed_root: str | Path | None = None,
     limits: IngestionLimits | None = None,
     av_scanner: AvScannerCallable | None = None,
+    _allow_private_worker_root: bool = False,
 ) -> IngestionResult:
     """
     نقطة الدخول الموحدة لاستيعاب أي ملف عبر المراحل الطبقية:
@@ -1750,11 +1878,11 @@ def ingest_file(
             limits=active_limits,
         )
 
-    if allowed_root is None:
-        raise ValueError("allowed_root_required: explicit user-selected root is required")
+    root = _resolve_allowed_root(allowed_root, allow_private_worker_root=_allow_private_worker_root)
     raw_path = Path(file_path)
-    root = Path(allowed_root).resolve()
-    safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
+    safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True).resolve(strict=True)
+    if not safe_path.is_relative_to(root):
+        raise ValueError("file_outside_allowed_root_after_realpath")
     clean_name = sanitize_filename(safe_path.name)
 
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
@@ -2262,11 +2390,11 @@ class IngestionPipeline:
         يعالج الملف ويعيد `(IngestionResult, from_cache)`.
         """
         self.purge_expired_cache()
-        if allowed_root is None:
-            raise ValueError("allowed_root_required: explicit user-selected root is required")
+        root = _resolve_allowed_root(allowed_root)
         raw_path = Path(file_path)
-        root = Path(allowed_root).resolve()
-        safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True)
+        safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True).resolve(strict=True)
+        if not safe_path.is_relative_to(root):
+            raise ValueError("file_outside_allowed_root_after_realpath")
         file_id, _, _ = _stream_sha256_and_head(safe_path)
         cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
 
@@ -2324,16 +2452,49 @@ def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
         _apply_worker_rlimits(limits.worker_max_memory_mb, limits.parser_timeout_seconds)
         _disable_worker_network()
 
-    res = ingest_file(args.worker_file, allowed_root=args.worker_root, limits=limits)
-    serialized = json.dumps(res.to_dict(), ensure_ascii=False)
+    try:
+        res = ingest_file(
+            args.worker_file, allowed_root=args.worker_root, limits=limits,
+            _allow_private_worker_root=True,
+        )
+    except MemoryError:
+        return WORKER_OOM_EXIT
+    payload = res.to_dict()
+    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if len(encoded) > MAX_WORKER_RESULT_BYTES:
+        payload["status"] = IngestionStatus.PARTIAL.value
+        payload["metadata"] = {**res.metadata, "text_truncated": True}
+        payload["warnings"] = [*res.warnings, "text_truncated: worker result capped at configured byte limit"]
+        text = res.text
+        while len(encoded) > MAX_WORKER_RESULT_BYTES and text:
+            text = text[: max(0, len(text) // 2)]
+            payload["text"] = text
+            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_WORKER_RESULT_BYTES:
+            payload.update({"text": "", "tables": [], "images": [],
+                            "metadata": {"text_truncated": True},
+                            "warnings": ["text_truncated: oversized structured output was removed"],
+                            "status": IngestionStatus.PARTIAL.value})
+            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_WORKER_RESULT_BYTES:
+            raise ValueError("worker_result_cannot_be_bounded")
     if args.worker_out:
         out_path = Path(args.worker_out)
         if out_path.resolve().parent != Path(args.worker_root).resolve():
             raise ValueError("worker_output_path_outside_root")
-        with out_path.open("w", encoding="utf-8") as output:
-            output.write(serialized)
+        fd = _open_regular_no_follow(out_path, os.O_WRONLY)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("worker_output_not_regular")
+            os.ftruncate(fd, 0)
+            view = memoryview(encoded)
+            while view:
+                written = os.write(fd, view)
+                view = view[written:]
+        finally:
+            os.close(fd)
     else:
-        print(serialized)
+        print(encoded.decode("utf-8"))
     return 0
 
 

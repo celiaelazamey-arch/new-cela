@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import socket
 import struct
+import sys
 import zipfile
 from pathlib import Path
 
@@ -458,7 +459,7 @@ def test_pipeline_enables_subprocess_isolation_by_default_and_manages_tenant_cac
     # انتهاء المهلة في العملية الفرعية يقتل مجموعة العمليات ويعيد blocked
     res_timeout = ingest_file_isolated(sample, allowed_root=tmp_path, timeout_seconds=0.0001)
     assert res_timeout.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
-    assert any("parser_subprocess_timeout" in w for w in res_timeout.warnings)
+    assert res_timeout.metadata["blocked_reason"] == "parser_timeout"
 
     # اختبار تعطيل الشبكة داخل العامل الفرعي مع استعادة socket بعد الاختبار
     orig_socket = socket.socket
@@ -737,7 +738,8 @@ def test_isolated_worker_crashes_fail_closed_and_has_no_pipes(
     monkeypatch.setattr(pipeline.subprocess, "Popen", fake_popen)
     result = ingest_file_isolated(source, allowed_root=tmp_path)
     assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
-    assert result.metadata["blocked_reason"] == "parser_subprocess_failed"
+    expected_reason = "parser_oom" if worker_exit == -9 else f"signal_{-worker_exit}" if worker_exit < 0 else "parser_crash"
+    assert result.metadata["blocked_reason"] == expected_reason
 
 
 def test_ingestion_requires_explicit_allowed_root(tmp_path: Path) -> None:
@@ -745,3 +747,346 @@ def test_ingestion_requires_explicit_allowed_root(tmp_path: Path) -> None:
     source.write_text("fixture", encoding="utf-8")
     with pytest.raises(ValueError, match="allowed_root_required"):
         ingest_file(source)
+
+
+@pytest.mark.parametrize(
+    ("script", "timeout", "expected_reason"),
+    [
+        ("import os; os.abort()", 5.0, "signal_6"),
+        ("import os\nwhile True: os.write(1, b'x' * 1048576)", 0.25, "parser_timeout"),
+        (
+            "import os\np='{worker_out}'\nos.unlink(p)\nos.symlink('/etc/passwd', p)",
+            5.0,
+            "worker_result_invalid",
+        ),
+        (
+            "import resource\nresource.setrlimit(resource.RLIMIT_AS, (268435456, 268435456))\n" +
+            "try: bytearray(1073741824)\nexcept MemoryError: raise SystemExit(75)",
+            5.0,
+            "parser_oom",
+        ),
+        (
+            "import os\nfrom src.ingestion.pipeline import _apply_worker_rlimits\n" +
+            "_apply_worker_rlimits(512, 15)\nfd=os.open('{worker_out}', os.O_WRONLY)\n" +
+            "while True: os.write(fd, b'x' * 1048576)",
+            5.0,
+            "parser_crash",
+        ),
+    ],
+    ids=["real-abort", "multi-gigabyte-stdout", "result-symlink", "rlimit-as-oom", "rlimit-fsize-output"],
+)
+def test_real_worker_faults_are_bounded_and_fail_closed(
+    tmp_path: Path, script: str, timeout: float, expected_reason: str
+) -> None:
+    pytest.importorskip("resource") if "resource." in script or "_apply_worker_rlimits" in script else None
+    source = tmp_path / "fault.txt"
+    source.write_text("safe", encoding="utf-8")
+    result = ingest_file_isolated(
+        source,
+        allowed_root=tmp_path,
+        timeout_seconds=timeout,
+        _worker_cmd=[sys.executable, "-c", script],
+    )
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == expected_reason
+
+
+@pytest.mark.parametrize(
+    "broad_root",
+    ["/", "/tmp", str(Path.home())],
+    ids=["filesystem-root", "system-temp-root", "home-root"],
+)
+def test_allowed_root_rejects_broad_roots(tmp_path: Path, broad_root: str) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("safe", encoding="utf-8")
+    with pytest.raises(ValueError, match="allowed_root_too_broad"):
+        ingest_file(source, allowed_root=broad_root)
+
+
+def test_allowed_root_rejects_symlink_escape(tmp_path: Path) -> None:
+    allowed = tmp_path / "selected"
+    allowed.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    link = allowed / "alias.txt"
+    link.symlink_to(outside)
+    with pytest.raises(ValueError, match="file_outside_allowed_root_after_realpath"):
+        ingest_file(link, allowed_root=allowed)
+
+
+def test_worker_serialization_truncates_result_under_fsize_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from src.ingestion import pipeline
+
+    result = pipeline.IngestionResult(
+        id="sha256:test", name="large.txt", mime="text/plain", size=6_000_000,
+        status=IngestionStatus.EXTRACTED.value, parser="test", language="en", text="x" * 6_000_000,
+    )
+    monkeypatch.setattr(pipeline, "ingest_file", lambda *_args, **_kwargs: result)
+    source = tmp_path / "worker-input"
+    source.touch()
+    out = tmp_path / "result.json"
+    out.touch()
+    assert pipeline._cli_worker_main(
+        ["--worker-file", str(source), "--worker-root", str(tmp_path),
+         "--worker-limits", "{}", "--worker-out", str(out)],
+        apply_os_sandbox=False,
+    ) == 0
+    assert out.stat().st_size <= pipeline.MAX_WORKER_RESULT_BYTES
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == IngestionStatus.PARTIAL.value
+    assert payload["metadata"]["text_truncated"] is True
+    assert any("text_truncated" in warning for warning in payload["warnings"])
+
+
+def test_isolated_staging_rejects_symlink_input(tmp_path: Path) -> None:
+    root = tmp_path / "selected"
+    root.mkdir()
+    target = root / "real.txt"
+    target.write_text("trusted", encoding="utf-8")
+    alias = root / "alias.txt"
+    alias.symlink_to(target)
+    result = ingest_file_isolated(alias, allowed_root=root)
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "parser_subprocess_staging_error"
+
+
+@pytest.mark.parametrize(
+    ("attack", "expected"),
+    [
+        ("unsupported-method", "zip_unsupported_compression_method"),
+        ("zip64-size", "zip_bomb_zip64_blocked"),
+        ("nested-extension", "zip_bomb_nested_archive"),
+        ("closed-stream", "archive_stream_closed"),
+        ("bad-local-signature", "archive_corrupt_header"),
+        ("bad-local-method", "zip_unsupported_compression_method"),
+        ("spoofed-local-size", "zip_bomb_spoofed_header"),
+        ("actual-size-overrun", "zip_bomb_spoofed_header"),
+        ("cumulative-size-limit", "zip_bomb_size_exceeded"),
+        ("nested-signature", "zip_bomb_nested_archive"),
+        ("crc-mismatch", "archive_entry_crc_mismatch"),
+        ("central-compressed-size-zero", "archive_entry_size_mismatch"),
+    ],
+    ids=["method", "zip64", "nested-extension", "closed", "local-signature", "local-method",
+         "local-size", "actual-size", "cumulative-limit", "nested-magic", "crc", "truncated-size"],
+)
+def test_safe_zip_entry_rejects_malformed_archives(attack: str, expected: str) -> None:
+    from src.ingestion.pipeline import _safe_read_zip_entry
+
+    payload = b"PK\x03\x04payload" if attack == "nested-signature" else b"hello zip"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("nested.zip" if attack == "nested-extension" else "safe.txt", payload)
+    raw = bytearray(archive_bytes.getvalue())
+    if attack == "bad-local-signature":
+        raw[0:4] = b"FAIL"
+    elif attack == "bad-local-method":
+        struct.pack_into("<H", raw, 8, 99)
+    elif attack == "spoofed-local-size":
+        struct.pack_into("<I", raw, 22, len(payload) + 1)
+    elif attack == "central-compressed-size-zero":
+        struct.pack_into("<H", raw, 6, 0x08)  # Data Descriptor: use central-directory sizes
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        info = archive.infolist()[0]
+        if attack == "unsupported-method":
+            info.compress_type = 99
+        elif attack == "zip64-size":
+            info.file_size = 0xFFFFFFFF
+        elif attack == "actual-size-overrun":
+            info.file_size = 1
+        elif attack == "crc-mismatch":
+            info.CRC ^= 1
+        elif attack == "central-compressed-size-zero":
+            info.compress_size = 0
+        if attack == "closed-stream":
+            archive.close()
+        limits = IngestionLimits(max_uncompressed_bytes=1 if attack == "cumulative-size-limit" else 100)
+        with pytest.raises((ValueError, zipfile.BadZipFile), match=expected):
+            _safe_read_zip_entry(
+                archive, info, limits=limits, cumulative_bytes=[0],
+                forbid_nested_archive=attack in {"nested-extension", "nested-signature"},
+            )
+
+
+def test_safe_zip_entry_empty_and_unconsumed_tail_paths() -> None:
+    from src.ingestion.pipeline import CHUNK_SIZE_BYTES, _safe_read_zip_entry
+
+    archive_bytes = io.BytesIO()
+    long_payload = b"Z" * (CHUNK_SIZE_BYTES * 4)
+    with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("empty.txt", b"")
+        archive.writestr("large.txt", long_payload)
+    with zipfile.ZipFile(io.BytesIO(archive_bytes.getvalue())) as archive:
+        infos = {info.filename: info for info in archive.infolist()}
+        empty = _safe_read_zip_entry(archive, infos["empty.txt"], limits=IngestionLimits(), cumulative_bytes=[0])
+        assert bytes(empty) == b""
+        large = _safe_read_zip_entry(archive, infos["large.txt"], limits=IngestionLimits(), cumulative_bytes=[0])
+        assert bytes(large) == long_payload
+
+
+def test_safe_zip_entry_rejects_truncated_stream_and_nonblocking_read() -> None:
+    from src.ingestion.pipeline import _safe_read_zip_entry
+
+    archive_bytes = io.BytesIO()
+    payload = b"A" * 1000
+    with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("data.txt", payload)
+    raw = bytearray(archive_bytes.getvalue())
+    struct.pack_into("<H", raw, 6, 0x08)  # treat sizes as supplied by central directory
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        info = archive.infolist()[0]
+        info.compress_size -= 1
+        with pytest.raises(zipfile.BadZipFile, match="archive_entry_deflate_stream_incomplete"):
+            _safe_read_zip_entry(archive, info, limits=IngestionLimits(), cumulative_bytes=[0])
+
+    with zipfile.ZipFile(io.BytesIO(archive_bytes.getvalue())) as archive:
+        info = archive.infolist()[0]
+
+        class TruncatedReader:
+            def __init__(self, data: bytes) -> None:
+                self._stream = io.BytesIO(data)
+                self._reads = 0
+
+            def seek(self, offset: int) -> int:
+                return self._stream.seek(offset)
+
+            def read(self, size: int = -1) -> bytes:
+                self._reads += 1
+                if self._reads == 1:
+                    return self._stream.read(size)
+                return b""
+
+        archive.fp = TruncatedReader(archive_bytes.getvalue())  # type: ignore[assignment]
+        with pytest.raises(zipfile.BadZipFile, match="archive_entry_size_mismatch"):
+            _safe_read_zip_entry(archive, info, limits=IngestionLimits(), cumulative_bytes=[0])
+
+
+def test_isolated_worker_result_identity_is_verified(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("safe", encoding="utf-8")
+    script = (
+        "import json\np={'id':'sha256:wrong','name':'source.txt','mime':'text/plain','size':4,"
+        "'status':'extracted','parser':'fake','text':'safe'}\n"
+        "open('{worker_out}','w').write(json.dumps(p))"
+    )
+    result = ingest_file_isolated(source, allowed_root=tmp_path, _worker_cmd=[sys.executable, "-c", script])
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "worker_result_identity_mismatch"
+
+
+def test_isolated_worker_rejects_changed_staged_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "source.txt"
+    source.write_text("original", encoding="utf-8")
+
+    def replace_copy(_source: Path, destination: Path) -> None:
+        destination.write_text("modified", encoding="utf-8")
+
+    monkeypatch.setattr(pipeline, "_copy_to_private_readonly", replace_copy)
+    result = ingest_file_isolated(source, allowed_root=tmp_path)
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "input_changed_during_staging"
+
+
+def test_isolated_worker_timeout_uses_kill_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "hang.txt"
+    source.write_text("safe", encoding="utf-8")
+    monkeypatch.setattr(pipeline.os, "killpg", lambda *_args: (_ for _ in ()).throw(OSError("unsupported")))
+    script = "while True: pass"
+    result = ingest_file_isolated(
+        source, allowed_root=tmp_path, timeout_seconds=0.2,
+        _worker_cmd=[sys.executable, "-c", script],
+    )
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "parser_timeout"
+
+
+def test_isolated_file_symlink_resolving_outside_root_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "selected"
+    root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    alias = root / "escape.txt"
+    alias.symlink_to(outside)
+    with pytest.raises(ValueError, match="file_outside_allowed_root_after_realpath"):
+        ingest_file_isolated(alias, allowed_root=root)
+
+
+def test_worker_timeout_wait_after_kill_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "hang.txt"
+    source.write_text("safe", encoding="utf-8")
+
+    class NeverWaits:
+        pid = 9876
+        returncode: int | None = None
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired("fake-worker", timeout)
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda *_args, **_kwargs: NeverWaits())
+    monkeypatch.setattr(pipeline.os, "killpg", lambda *_args: (_ for _ in ()).throw(OSError("fallback")))
+    result = ingest_file_isolated(source, allowed_root=tmp_path)
+    assert result.metadata["blocked_reason"] == "parser_timeout"
+
+
+def test_worker_wait_exception_triggers_cleanup_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline
+
+    source = tmp_path / "error.txt"
+    source.write_text("safe", encoding="utf-8")
+
+    class BadWait:
+        pid = 9877
+        returncode: int | None = None
+        calls = 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("wait failed")
+            return self.returncode or 0
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda *_args, **_kwargs: BadWait())
+    monkeypatch.setattr(pipeline.os, "killpg", lambda *_args: (_ for _ in ()).throw(OSError("fallback")))
+    result = ingest_file_isolated(source, allowed_root=tmp_path)
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "parser_crash"
+
+
+def test_parent_stages_readonly_copy_and_worker_can_read_it(tmp_path: Path) -> None:
+    source = tmp_path / "design.txt"
+    source.write_text("Cairo print art", encoding="utf-8")
+    script = (
+        "import hashlib,json,os,stat\np='{worker_file}'\ndata=open(p,'rb').read()\n"
+        "assert stat.S_IMODE(os.stat(p).st_mode)==0o400\n"
+        "result={'id':'sha256:'+hashlib.sha256(data).hexdigest(),'name':'design.txt',"
+        "'mime':'text/plain','size':len(data),'status':'extracted','parser':'test','text':data.decode()}\n"
+        "open('{worker_out}','w').write(json.dumps(result))"
+    )
+    result = ingest_file_isolated(
+        source, allowed_root=tmp_path, _worker_cmd=[sys.executable, "-c", script]
+    )
+    assert result.status == IngestionStatus.EXTRACTED.value
+    assert result.text == "Cairo print art"
