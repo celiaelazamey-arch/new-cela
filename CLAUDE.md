@@ -22,8 +22,12 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| **البرانش الوحيد المسموح** | `arena/eef426e3-new-cela` |
-| بوابة الدفع | `origin arena/eef426e3-new-cela` فقط |
+| **البرانش الوحيد المسموح** | **برانش الجلسة الحالية** — تحقق منه بـ `git branch --show-current` (حالياً: `arena/eef426e3-new-cela`) |
+| بوابة الدفع | `origin <برانش الجلسة>` فقط |
+
+> ℹ️ كل جلسة Arena تُنشئ برانشاً جديداً بالنمط `arena/<id>-new-cela`. الاسم المسجّل هنا هو
+> **آخر جلسة معروفة** وليس ثابتاً — المرجع الحاكم هو مخرج `git branch --show-current` في بداية الجلسة.
+> سجل البرانشات: `AGENT_HANDOFF.md` القسم 2.
 
 - ❌ **يُمنع** إنشاء/تحويل/الدفع إلى أي برانش آخر.
 - ❌ **يُمنع** `git push --force` أو حذف branches.
@@ -113,6 +117,7 @@ pytest -q --cov=src --cov-fail-under=60
 
 ```
 src/core/policy.py   :: DEFAULT_SCOPES   (يجب أن يبقى {fs.read})
+src/core/policy.py   :: autonomy=L1      (الافتراضي؛ L3 لا يُبنى بلا kill switch)
 src/core/quota.py    :: allow_paid       (يجب أن يبقى False افتراضياً)
 src/execution/sandbox.py :: shell=True   (ممنوع إطلاقاً)
 scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا تُوسَّع بلا سبب موثّق)
@@ -163,13 +168,15 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 | [`docs/compliance-framework.md`](docs/compliance-framework.md) | EU AI Act + قانون مصر 151/2020 |
 | [`docs/incident-response.md`](docs/incident-response.md) | خطة الـ 72 ساعة |
 | [`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) | إفصاح المادة 50 |
+| [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) | الوعي الوظيفي (12 س/ج): تقادم نموذج الذات، معايرة، L0–L3 + kill switch، مقاييس، محكّم |
+| [`docs/monetization-plan.md`](docs/monetization-plan.md) | خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela` |
 
 ---
 
 ## 9. قبل أن تبدأ أي مهمة
 
 - [ ] قرأت `AGENT_HANDOFF.md` وتعرف آخر مهمة منفّذة.
-- [ ] تعرف أنك على `arena/1756fb0e-new-cela`.
+- [ ] شغّلت `git branch --show-current` وتعرف اسم برانش الجلسة (حالياً `arena/eef426e3-new-cela`) ولن تدفع إلى غيره.
 - [ ] ستبني على **المصدر الأصلي** لا على مخرجاتك السابقة (البند 4: Logic Drift).
 - [ ] ستشغّل البوابات كلها قبل إعلان الاكتمال.
 - [ ] ستسجّل ما فعلته في `AGENT_HANDOFF.md` وتدفعه.

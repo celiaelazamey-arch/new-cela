@@ -43,6 +43,29 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "PolicyEngine": "class",
         "PolicyDenied": "class",
         "DEFAULT_SCOPES": "const",
+        "AutonomyLevel": "class",
+        "KillSwitch": "class",
+        "IRREVERSIBLE_SCOPES": "const",
+    },
+    # المهمة 11 — الوعي الوظيفي: تقادم نموذج الذات، معايرة، مقاييس، محكّم.
+    "src/awareness/self_model.py": {
+        "Capability": "class",
+        "SelfModel": "class",
+        "DriftFinding": "class",
+        "DEFAULT_TTL_DAYS": "const",
+    },
+    "src/awareness/calibration.py": {
+        "CalibrationLedger": "class",
+        "gate": "func",
+        "DEFAULT_THRESHOLD": "const",
+        "REFUSE_THRESHOLD": "const",
+    },
+    "src/awareness/metrics.py": {
+        "compute_metrics": "func",
+        "promotion_check": "func",
+    },
+    "src/core/arbiter.py": {
+        "Arbiter": "class",
     },
     "src/core/quota.py": {
         "QuotaGuard": "class",
@@ -83,6 +106,7 @@ REQUIRED_DOCS = (
     "docs/agent-failure-patterns.md",
     "docs/ci-cd-free-tier.md",
     "docs/compliance-framework.md",
+    "docs/functional-awareness-qa.md",
     "docs/monetization-plan.md",
 )
 

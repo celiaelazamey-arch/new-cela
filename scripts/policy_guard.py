@@ -157,6 +157,25 @@ def check_allowlists_intact() -> list[str]:
     return issues
 
 
+def check_autonomy_default() -> list[str]:
+    """
+    الاستقلالية الافتراضية يجب أن تبقى L1 (ينفّذ بعد موافقة)، وL3 لا يُبنى بلا kill switch.
+
+    رفع المستوى الافتراضي صامتاً = تعطيل حماية (المهمة 11، البند 6).
+    """
+    text = _read("src/core/policy.py")
+    if text is None:
+        return ["policy.py غير موجود — لا يمكن التحقق من الاستقلالية"]
+    issues: list[str] = []
+    if not re.search(r"autonomy:\s*AutonomyLevel\s*=\s*AutonomyLevel\.L1\b", text):
+        issues.append("الافتراضي لـ PolicyEngine.autonomy ليس AutonomyLevel.L1 — رفع الاستقلالية يحتاج مراجعة بشرية.")
+    if not re.search(r"AutonomyLevel\.L3\s+and\s+kill_switch\s+is\s+None", text):
+        issues.append("اختفى شرط «L3 يتطلب kill switch» من PolicyEngine.__init__.")
+    if "if self.kill_switch.is_engaged():" not in text:
+        issues.append("فحص kill switch لم يعد في PolicyEngine.evaluate().")
+    return issues
+
+
 def check_protected_present() -> list[str]:
     issues: list[str] = []
     for rel, label in PROTECTED.items():
@@ -177,6 +196,7 @@ def main() -> int:
         ("بلا مزود مدفوع افتراضي", check_no_paid_default),
         ("تأمين agent-runner", check_runner_hardening),
         ("قوائم السماح", check_allowlists_intact),
+        ("الاستقلالية الافتراضية L1 + kill switch", check_autonomy_default),
         ("الملفات المحمية", check_protected_present),
     )
 

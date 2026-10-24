@@ -20,7 +20,7 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, IntEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -58,6 +58,66 @@ DEFAULT_SCOPES: frozenset[str] = frozenset({"fs.read"})
 ALWAYS_ASK_SCOPES: frozenset[str] = frozenset(
     {"fs.write", "fs.delete", "shell.exec", "net.egress"}
 )
+
+# نطاقات لا تُعدّ «قابلة للتراجع» أبداً — لا تُنفَّذ تلقائياً حتى في L2.
+IRREVERSIBLE_SCOPES: frozenset[str] = frozenset({"fs.delete", "shell.exec", "net.egress"})
+
+
+class AutonomyLevel(IntEnum):
+    """
+    سُلَّم الاستقلالية — يُرفع بالمقاييس (`awareness.metrics.promotion_check`) لا بالانطباع.
+
+      L0  يقترح فقط: أي write/execute يُرفض حتى لو وُجد من يوافق.
+      L1  ينفّذ بعد موافقة صريحة لكل عملية (السلوك الافتراضي الحالي).
+      L2  ينفّذ تلقائياً ما هو **آمن وقابل للتراجع** ويُبلغ؛ الباقي يسأل.
+      L3  مستقل داخل نطاقات محددة صراحةً — ويُشترط kill switch فعّال.
+    """
+
+    L0 = 0
+    L1 = 1
+    L2 = 2
+    L3 = 3
+
+
+KILL_SWITCH_ENV = "NEW_CELA_KILL_SWITCH"
+KILL_SWITCH_FILE = ".agent_kill_switch"
+
+
+class KillSwitch:
+    """
+    مفتاح إيقاف يفحصه محرك السياسات **قبل كل قرار** — لا يُخزَّن نتيجةً.
+
+    يُفعَّل بأي من:
+      • متغير بيئة `NEW_CELA_KILL_SWITCH=1`
+      • وجود ملف `.agent_kill_switch` في جذر مسموح (يُنشئه الإنسان بلمسة واحدة)
+      • `engage()` برمجياً (مثلاً من اختبار ضغط أو مراقب)
+    """
+
+    def __init__(self, roots: Iterable[Path] = (), file_name: str = KILL_SWITCH_FILE) -> None:
+        self.roots = tuple(Path(root) for root in roots)
+        self.file_name = file_name
+        self._engaged = False
+        self.reason = ""
+
+    def engage(self, reason: str = "إيقاف يدوي") -> None:
+        self._engaged = True
+        self.reason = reason
+
+    def release(self) -> None:
+        self._engaged = False
+        self.reason = ""
+
+    def is_engaged(self) -> bool:
+        if self._engaged:
+            return True
+        if os.environ.get(KILL_SWITCH_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
+            self.reason = f"متغير البيئة {KILL_SWITCH_ENV} مُفعَّل"
+            return True
+        for root in self.roots:
+            if (root / self.file_name).exists():
+                self.reason = f"ملف الإيقاف موجود: {root / self.file_name}"
+                return True
+        return False
 
 
 class ApprovalRequest(BaseModel):
@@ -186,6 +246,9 @@ class PolicyEngine:
         approval_handler: ApprovalHandler | None = None,
         audit: AuditLog | None = None,
         max_approvals: int = 10,
+        autonomy: AutonomyLevel = AutonomyLevel.L1,
+        autonomy_scopes: Iterable[str] = (),
+        kill_switch: KillSwitch | None = None,
     ) -> None:
         roots = [Path(root) for root in (allowed_roots or [Path.cwd()])]
         self.allowed_roots: tuple[Path, ...] = tuple(root.resolve() for root in roots)
@@ -194,6 +257,13 @@ class PolicyEngine:
         self.audit = audit or AuditLog()
         self.max_approvals = max(0, int(max_approvals))
         self._approvals_used = 0
+        self.autonomy = AutonomyLevel(autonomy)
+        # نطاقات L3 المستقلة: لا بد أن تكون ممنوحة أصلاً، وليست من اللارجعية.
+        self.autonomy_scopes = frozenset(autonomy_scopes) & self.granted_scopes - IRREVERSIBLE_SCOPES
+        self.kill_switch = kill_switch or KillSwitch(roots=self.allowed_roots)
+        if self.autonomy is AutonomyLevel.L3 and kill_switch is None:
+            raise ValueError("المستوى L3 يتطلب kill switch صريحاً — لا استقلالية بلا مفتاح إيقاف.")
+        self.auto_actions: list[str] = []  # ما نُفِّذ تلقائياً (L2/L3) — يُبلَّغ به المستخدم
 
     # ---------------- حصر المسارات ----------------
     def resolve_path(self, raw: str | Path) -> Path:
@@ -221,8 +291,22 @@ class PolicyEngine:
         return any(path == root or root in path.parents for root in self.allowed_roots)
 
     # ---------------- التقييم ----------------
-    def evaluate(self, tool: str, risk: ToolRisk, scope: str = "") -> PolicyVerdict:
-        """يقيّم الطلب دون أي تفاعل — قرار قابل للاختبار وحدوياً."""
+    def evaluate(
+        self, tool: str, risk: ToolRisk, scope: str = "", reversible: bool = False
+    ) -> PolicyVerdict:
+        """
+        يقيّم الطلب دون أي تفاعل — قرار قابل للاختبار وحدوياً.
+
+        الترتيب مقصود: kill switch أولاً (يسبق كل شيء)، ثم النطاق، ثم القراءة،
+        ثم مستوى الاستقلالية، ثم حد الموافقات.
+        """
+        if self.kill_switch.is_engaged():
+            return PolicyVerdict(
+                PolicyDecision.DENY,
+                f"مفتاح الإيقاف مُفعَّل ({self.kill_switch.reason or 'بلا سبب مُسجَّل'}) — لا تنفيذ.",
+                scope,
+            )
+
         if scope and scope not in self.granted_scopes:
             return PolicyVerdict(
                 PolicyDecision.DENY,
@@ -232,6 +316,31 @@ class PolicyEngine:
 
         if risk is ToolRisk.READ and scope not in ALWAYS_ASK_SCOPES:
             return PolicyVerdict(PolicyDecision.ALLOW, "قراءة فقط ضمن نطاق ممنوح.", scope)
+
+        if self.autonomy is AutonomyLevel.L0:
+            return PolicyVerdict(
+                PolicyDecision.DENY,
+                f"المستوى L0 يقترح فقط — عملية {risk.value} تُعرض كاقتراح ولا تُنفَّذ.",
+                scope,
+            )
+
+        if self.autonomy is AutonomyLevel.L3 and scope in self.autonomy_scopes:
+            return PolicyVerdict(
+                PolicyDecision.ALLOW,
+                f"L3: نطاق «{scope}» مستقل صراحةً (kill switch متاح).",
+                scope,
+            )
+
+        if (
+            self.autonomy >= AutonomyLevel.L2
+            and reversible
+            and scope not in IRREVERSIBLE_SCOPES
+        ):
+            return PolicyVerdict(
+                PolicyDecision.ALLOW,
+                f"L{int(self.autonomy)}: عملية {risk.value} قابلة للتراجع — تُنفَّذ ويُبلَّغ بها.",
+                scope,
+            )
 
         if self._approvals_used >= self.max_approvals:
             return PolicyVerdict(
@@ -253,13 +362,16 @@ class PolicyEngine:
         scope: str = "",
         args: dict | None = None,
         summary: str = "",
+        reversible: bool = False,
     ) -> PolicyVerdict:
         """
         يقيّم ثم يحصل على الموافقة عند الحاجة، ويسجّل القرار في التدقيق.
 
         يرفع `PolicyDenied` عند الرفض — ولا يعيد إلا قرار `ALLOW`.
+        `reversible=True` يُعلنه المستدعي صراحةً (مثلاً تعديل له نسخة احتياطية)؛
+        لا يُستنتج تلقائياً.
         """
-        verdict = self.evaluate(tool, risk, scope)
+        verdict = self.evaluate(tool, risk, scope, reversible=reversible)
         preview = redact(_preview_args(args))
 
         if verdict.decision is PolicyDecision.DENY:
@@ -283,6 +395,9 @@ class PolicyEngine:
             self._audit(tool, risk, scope, PolicyDecision.ALLOW, decision.note or "موافقة", preview)
             return PolicyVerdict(PolicyDecision.ALLOW, decision.note or "موافقة", scope)
 
+        if risk is not ToolRisk.READ:
+            # تنفيذ تلقائي (L2/L3): يُحفظ للإبلاغ — «ينفّذ ويُبلغ» لا «ينفّذ بصمت».
+            self.auto_actions.append(f"{tool} [{scope}] — {verdict.reason}")
         self._audit(tool, risk, scope, PolicyDecision.ALLOW, verdict.reason, preview)
         return verdict
 
