@@ -172,17 +172,17 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
-- **2026-10-24** — المهمة 17: **بناء خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py`)**:
-  - **✅ المرجع المعماري الدائم [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md):** يوثّق المراحل الثمان (`upload ← detect ← scan ← route ← extract ← normalize ← store ← index`)، ومقارنة التراخيص التجارية (`pypdf` BSD مقابل `PyMuPDF` AGPL)، والضوابط الأمنية الإلزامية.
-  - **✅ المحرك البرمجي [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) + مجموعة اختبارات الصيغ المتعددة [`tests/test_ingestion.py`](tests/test_ingestion.py):**
-    1. **كشف البصمة الثنائية (`detect_magic_mime`):** يفحص `Magic Bytes` لـ `PDF`, `PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `TIFF`, `PSD (8BPS)`, `EPS (%!PS)`, `ZIP/DOCX/XLSX/PPTX`, `SQLite`, و`EXE/ELF`؛ ويُصدر تحذير `suspicious_extension_mismatch` عند تعارض الامتداد مع المحتوى الفعلي.
-    2. **حظر الملفات التنفيذية (`status="blocked"`):** يمنع تحليل أو تنفيذ `EXE / DLL / ELF / SH / BAT` ويكتفي ببصمة `sha256:` والـ `metadata`.
-    3. **دعم العربية وترميز `Windows-1256` (`detect_and_decode_text`):** يعالج ملفات الحسابات والمطابع العربية القديمة بترميز `cp1256` دون تشويه الحروف.
-    4. **استخراج `PDF` (مع كشف `scanned_pdf_needs_ocr`) و`DOCX/XLSX/PPTX` (عبر `zipfile` + `ElementTree` القياسية بلا تبعيات إضافية) و`CSV/JSON/EML`.**
-    5. **دعم ملفات التصميم والمطابع (`PSD` + صور الطباعة):** يقرأ ترويسة `PSD` الثنائية (`8BPS`: الأبعاد، عدد القنوات، ونظام الألوان `CMYK/RGB/Spot`)، ويستخرج `DPI` من الصور (ويحذّر عند `< 300 DPI`)، ويعقّم `SVG/HTML` من `XSS` و`XXE` بصفر Regex.
-    6. **حارس قنابل الضغط (`_check_zip_safety`):** يفحص الحجم بعد الفك، نسبة الضغط، عدد الملفات، عمق المجلدات، واجتياز المسارات (`..`).
-    7. **المخرج الموحد (`IngestionResult`) + عدم تكرار المعالجة (`Idempotency` بـ `sha256:`) + قبول أي صيغة غير مدعومة أو تالفة بـ `status="metadata_only"`.**
-  - **✅ التحقق:** **510 pytest ✅** (تغطية شاملة **`87.38%`**) · **92 عقداً معمارياً** و**15 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
+- **2026-10-24** — المهمة 17 (الإصدار المحصّن `v2.0.0`): **بناء وتحصين خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py` — شامل إصلاحات P0 + P1 + P2)**:
+  - **✅ المرجع المعماري الدائم [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md):** يوثّق المراحل الثمان، مقارنة التراخيص التجارية (`pypdf` BSD مقابل `PyMuPDF` AGPL)، وضوابط التحصين `P0/P1/P2`.
+  - **✅ المحرك البرمجي [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) (`PIPELINE_VERSION = "2.0.0"`) + الاختبارات الهجومية [`tests/test_ingestion.py`](tests/test_ingestion.py):**
+    1. **حماية XML الصارمة (`safe_xml_fromstring` + `defusedxml` — P0):** حظر `<!DOCTYPE` و`<!ENTITY` (`Billion Laughs` / `XXE`) وفرض سقوف حيّة على حجم XML (`max_xml_bytes`) وعمق الشجرة (`max_xml_depth`) وعدد العناصر (`max_xml_elements`).
+    2. **فك الضغط التدفقي المحدود وعدم الثقة بترويسة ZIP (`_safe_read_zip_entry` — P0):** مطابقة `Local File Header` مع `Central Directory`، وفك الضغط عبر `zlib.decompressobj(-15)` بسقف فعلي يكشف الترويسات المزوّرة (`zip_bomb_spoofed_header`) ويحظر الأرشيفات المتداخلة (`zip_bomb_nested_archive`) واجتياز المسارات (`archive_path_traversal`) وقنابل الصور (`max_image_pixels`).
+    3. **عزل المعالجة في عملية فرعية (`ingest_file_isolated` — P0):** تشغيل المحلّل في عملية Python فرعية بلا صدفة (`shell=False`) وببيئة نظيفة وسقف زمني (`parser_timeout_seconds`).
+    4. **معقّم القائمة البيضاء لـ `SVG/HTML` (`_AllowlistSvgHtmlSanitizer` — P1):** تحليل شجري عبر `HTMLParser` يسمح فقط بوسوم وسمات آمنة، ويفك كيانات HTML (`html.unescape`) قبل فحص الروابط و`style` لإحباط `<foreignObject>` و`&#106;avascript:` و`data:` و`url(javascript:...)`، مع ترويسات `CSP` و`Content-Disposition: attachment`.
+    5. **توسيع كشف البصمة الثنائية وفحص الفيروسات والماكرو (`scan_for_malware` — P1):** دعم `Mach-O`, `Java Class`, `WASM`, `OLE2`, `7z`, `RAR`, `TAR`، ومؤشرات اسكربتات `Batch/PowerShell` المتخفّية، وحظر ماكرو `VBA` (`vbaProject.bin` في OOXML و`_VBA_PROJECT` في OLE2)، وفحص `ClamAV` / `EICAR` / `av_scanner`.
+    6. **مفتاح Cache مركّب يعزل المستأجرين والإصدار (`tenant_id + PIPELINE_VERSION + limits.fingerprint() + sha256` — P1).**
+    7. **الدقة التقنية للمطابع والعربية (P2):** قراءة قسم `Image Resources` (`8BIM`: `0x03EE`, `0x0415`, `0x0435`) في `PSD` للتمييز بين `base_channels` وقنوات `Spot/Alpha` وأسمائها الفعلية، وحساب `effective_dpi` الفعلي بمعلومية مقاس الطباعة، واستخراج `XLSX` الكامل (`sharedStrings` + `inlineStr` + المعادلات + الأوراق المتعددة + الاقتطاع `partial`)، وحساب `encoding_confidence` لترميز `cp1256` مع مرجع `charset_normalizer`.
+  - **✅ التحقق:** **514 pytest ✅** (تغطية `src/ingestion/pipeline.py` بلغت **`93%`** شاملة كل فروع الأمان، والتغطية الكلية للمشروع **`87.74%`**) · **97 عقداً معمارياً** و**15 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
 - **2026-10-24** — المهمة 16: **تجسيد وتوثيق دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»)**:
   - **✅ المرجع الدائم [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md):** يربط القواعد الـ 18 كاملةً بأدلة الكود الفعلية في `new-cela` (`18/18` محققة برمجياً).
   - **✅ سجل التغييرات ودراسة حالة العميل رقم #0 [`CHANGELOG.md`](CHANGELOG.md) (البند 17 — ابنِ علناً):** يوثّق دراسة حالة مطبعة الملابس (السلك سكرين) وأرشيف الأفلام وسجل الإصدارات من `0.2.0` حتى `0.5.0`.
