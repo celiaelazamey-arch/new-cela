@@ -92,7 +92,17 @@ gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
 | 9 | مقارنة منصات CI/CD المجانية + **التحقق من التعارضات** + تطبيق تحسينات الأمان | ✅ **منفّذة — بانتظار تأكيد المستخدم** | تعارض self-hosted محسوم · **12 SHA مثبّتة** · CodeQL + SBOM + coverage ✅ · **403 pytest ✅** · CI ✅ (19 خطوة + CodeQL) | `22ca954` |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 9 — منتهية التنفيذ والتحقق، في انتظار تأكيد القبول.
+- **🟢 تم الدمج (2026-10-24):** **PR #7 دُمج في `main`** — merge commit
+  [`c2239de3886a4e9ffc404e60bb99cd8af07c8a81`](https://github.com/celiaelazamey-arch/new-cela/commit/c2239de3886a4e9ffc404e60bb99cd8af07c8a81)
+  بأسلوب `--merge` (احتفظ بكل الـ 15 التزاماً — التزاماً بقاعدة «لا فقدان»).
+  `state=MERGED` · `mergedBy=celiaelazamey-arch` · `mergedAt=2026-10-24T01:49:21Z`.
+  ✅ تحقّق بعد الدمج: الملفات الحاكمة (`AGENT_HANDOFF.md` 32KB · `CLAUDE.md` ·
+  `SECURITY.md` · `docs/ci-cd-free-tier.md` · `scripts/action_pin_guard.py`) موجودة على
+  `main` عبر API. ✅ **CI على `main` نجح**: Quality Gate `40051514987` (19 خطوة) +
+  Security Scan `40051514962` (CodeQL python/actions).
+- **البرانش `arena/1756fb0e-new-cela` لا يزال نشطاً** وهو برانش الجلسة — أي عمل
+  جديد يُدفع إليه هنا أولاً، ثم يُدمج بطلب صريح من المستخدم.
+- **المهمة النشطة:** رقم 9 — منفّذة ومُدمجة؛ بانتظار تأكيد القبول النهائي.
 - **اعتبار المهام 2-7:** اعتُبرت مقبولة ضمناً بتفويض المستخدم المتكرر «نفّذ التصحيحات / القواعد».
 - 📜 **المرجع الملزم الجديد:** [`CLAUDE.md`](CLAUDE.md) — اقرأه أولاً في كل جلسة.
 - ⚠️ **قرار معلق خارج الكود:** ترخيص PDPC للنقل عبر الحدود — موعد **31 أكتوبر 2026**.
@@ -195,6 +205,11 @@ gh run list --branch arena/1756fb0e-new-cela --limit 3 # بوابة الجودة
   - **✅ المرجع:** `docs/ci-cd-free-tier.md` (مقارنة محسومة + القالب + المصادر) · `requirements-ci.txt` (أدوات CI منفصلة عن النواة).
   - **✅ تأكيد CI:** `Quality Gate 40050543326` نجح **19 خطوة** (بما فيها `Action Pin Guard` + `Tests (coverage)` + `SBOM`)؛ `Security Scan 40050543422` نجح — **CodeQL (python) ✅ + CodeQL (actions) ✅**، وDependency Review `skipped` (لأنه يعمل على PR فقط، وهذا كان push). artifact الـ SBOM: `sbom-cyclonedx` بحجم 1266 بايت.
   - **⚠️ حد مسجّل بصراحة:** رغم نجاح CodeQL، قراءة `code-scanning/alerts` عبر توكن الجلسة **لا تزال 403**. التحليل يُجرى ويظهر في واجهة GitHub للمالك، لكن الجلسة لا تستطيع قراءة نتائجه — لا يُدّعى غير ذلك. الالتزام `22ca954` يطابق الـ remote.
+- **2026-10-24** — **دمج PR #7 في `main`** بأمر المستخدم الصريح «Please merge the pull request».
+  - قبل الدمج تحُقّق: `mergeable=MERGEABLE` · `mergeStateStatus=CLEAN` · فحوصات الـ PR الخمسة `pass` · المحلي = الـ remote.
+  - نُفِّذ `gh pr merge 7 --merge` ⇒ exit 0، ثم **تُحقَّق من النتيجة بالـ API** لا بالافتراض: `state=MERGED`، merge commit `c2239de`، والملفات الحاكمة موجودة على `main`.
+  - ✅ **CI على `main` بعد الدمج:** Quality Gate `40051514987` — **19 خطوة نجحت**؛ Security Scan `40051514962` — CodeQL (python + actions) نجح. تحديث Dependency Graph (`40051520089`) يعمل تلقائياً من GitHub على `main`.
+  - 🐛 خطأ صغير أثناء التحقق: استعلام `gh pr view --json merged` فشل (`Unknown JSON field`) لأن الحقل الصحيح هو `state`+`mergedAt` — صُحِّح وأُعيد الاستعلام. لا تأثير على الدمج نفسه.
 
 ---
 
