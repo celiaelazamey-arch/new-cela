@@ -34,9 +34,9 @@ from src.core.schemas import (
 
 logger = logging.getLogger("new-cela.telemetry")
 
-# Allowlist لتسجيل اسم ملف التقرير — barrier يعترف به CodeQL (نمط store.py).
-# يسمح بحروف/أرقام يونيكود/نقاط/شرطات/مسافات؛ أي محرف تحكّم ⇒ يُحجب الاسم.
-_SAFE_FILE_LABEL = re.compile(r"[\w .\-]+")
+# Allowlist **ضيّقة** لتسجيل اسم الملف (نمط store.py): حروف/أرقام/._- فقط،
+# بلا فواصل مسارات ولا مسافات. القيمة تُسجَّل من `.group(0)` بعد التطابق.
+_SAFE_FILE_LABEL = re.compile(r"[\w.\-]+\Z")
 
 DEFAULT_RUNS_DIR = ".agent_runs"
 MAX_TEXT_CHARS = 6000
@@ -272,12 +272,12 @@ def _read_report(file: Path) -> RunReport | None:
     try:
         return RunReport.model_validate(json.loads(file.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError) as exc:
-        # ✅ BARRIER بنمط store.py: اسم الملف يُسجَّل فقط إذا طابق allowlist،
-        # وإلا يُحجب. يمنع Log Injection عبر اسم ملف خبيث (CWE-117).
-        file_label = file.name
-        if _SAFE_FILE_LABEL.fullmatch(file_label):
+        # ✅ BARRIER بنمط store.py: basename → allowlist ضيّقة → .group(0).
+        # أي اسم خبيث لا يطابق ⇒ يُحجب كلياً (يمنع Log Injection / CWE-117).
+        label = _SAFE_FILE_LABEL.fullmatch(file.name)
+        if label is not None:
             logger.warning("تخطّي تقرير تشغيل غير صالح %s (%s).",
-                           file_label, type(exc).__name__)
+                           label.group(0), type(exc).__name__)
         else:
             logger.warning("تخطّي تقرير تشغيل غير صالح (%s).", type(exc).__name__)
         return None

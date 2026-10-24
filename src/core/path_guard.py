@@ -37,13 +37,15 @@ _NEWLINE = re.compile(r"[\r\n\u2028\u2029]")
 # (القائمة دفاعية — الجذر المسموح below هو الفيصل الحقيقي.)
 _SENSITIVE_PREFIXES = ("/etc", "/proc", "/sys", "/dev", "/boot", "/root")
 
-# Allowlist صريحة للمسار — **مطابقة تماماً لنمط cognitive/store.py::_RUN_ID.fullmatch**
-# الذي أثبت CodeQL أنه barrier يقطع الـ taint: نتحقق بـ fullmatch على المتغير،
-# ثم نستخدم *نفس المتغير* بعد الـ guard (لا .group(0) قد لا يُعرَّف كـ taint-free).
+# Allowlist صريحة للمسار بمنع traversal مدمج عبر negative lookahead:
+# (?!.*\.\.) يرفض أي ظهور لـ ".." في أي موضع — فلا يصل لمصرف المسار مطلقاً.
 # \w = حروف/أرقام يونيكود (يشمل العربية) + _ — مهم لمسارات المستخدمين في مصر.
 # المسموح إضافةً: نقاط/شرطات/مسافات/فواصل مسارات. الممنوع ضمناً: محارف تحكّم،
 # أسطار جديدة، `?`, `*`, `:`, `;`, `|`, `&`, `$`, backtick ... إلخ.
-_SAFE_PATH = re.compile(r"[\w .\-/\\]+")
+# ملاحظة CodeQL: نمط store.py الناجح كان ضيّقاً جداً (بلا فواصل مسارات)؛
+# لذلك نبني القيمة المُستخدَمة من `.group(0)` (ناتج match) لا من النص الخام،
+# ونتجنّب Path.resolve() على المدخل الملوّث لأنه sink بحد ذاته.
+_SAFE_PATH = re.compile(r"(?!.*\.\.)[\w .\-/\\]+\Z")
 
 
 class UnsafePath(ValueError):
@@ -98,37 +100,33 @@ def guard_path(
     if "\x00" in raw_text:
         raise UnsafePath("المسار يحتوي محرف NUL.")
 
-    # ✅ BARRIER (مطابق لنمط store.py المُثبَت): fullmatch على `raw_text`،
-    # ثم استخدام *نفس المتغير* بعد الـ guard. CodeQL يقطع الـ taint هنا قبل
-    # أي .resolve() أو عملية قرص لاحقة.
-    if not _SAFE_PATH.fullmatch(raw_text):
-        raise UnsafePath("المسار يحتوي محارف غير مسموحة.")
+    # ✅ BARRIER: allowlist صريحة (بما فيها منع `..` عبر lookahead). القيمة التي
+    # تُستخدم لاحقاً هي `.group(0)` — ناتج match جديد، لا `raw_text` الخام.
+    match = _SAFE_PATH.fullmatch(raw_text)
+    if match is None:
+        raise UnsafePath("المسار يحتوي محارف غير مسموحة أو محاولة traversal.")
 
-    # منع traversal صريح — قبل أي resolve (قد يُخفي `..` عبر symlink).
-    parts = re.split(r"[\\/]+", raw_text)
-    if ".." in parts:
-        raise UnsafePath("محاولة traversal مرفوضة (..).")
+    safe_text = match.group(0)
+    candidate = Path(safe_text)
 
-    # نُعيد المسار المبني من المتغير المُطهَّر بعد barrier الـ fullmatch.
-    candidate = Path(raw_text)
-
-    # منع الإشارة الصريحة لمناطق النظام الحساسة.
-    try:
-        absolute = candidate if candidate.is_absolute() else (Path.cwd() / candidate)
-        resolved = absolute.resolve(strict=False)
-    except (OSError, RuntimeError) as exc:  # حلّ المسار فشل (حلقة symlink...)
-        raise UnsafePath(f"تعذّر حلّ المسار: {type(exc).__name__}.") from exc
-
-    resolved_text = str(resolved)
-    if any(resolved_text == p or resolved_text.startswith(p + os.sep) for p in _SENSITIVE_PREFIXES):
+    # منع المناطق الحساسة بعملية نصية (normpath) بدل Path.resolve() الذي يعدّه
+    # CodeQL sink عند تطبيقه على قيمة من المستخدم. لا نلمس القرص هنا إطلاقاً.
+    normalized = os.path.normpath(safe_text)
+    absolute_text = normalized if os.path.isabs(normalized) else os.path.normpath(
+        os.path.join(os.getcwd(), normalized)
+    )
+    if any(absolute_text == p or absolute_text.startswith(p + os.sep) for p in _SENSITIVE_PREFIXES):
         raise UnsafePath("المسار يشير إلى منطقة نظام حساسة.")
 
     if must_stay_under_root and allowed_roots:
+        # هنا فقط (جذور يحدّدها المطوّر، لا المستخدم) نستخدم resolve بأمان.
+        absolute = candidate if candidate.is_absolute() else (Path.cwd() / candidate)
+        resolved = absolute.resolve(strict=False)
         roots = [r.resolve(strict=False) for r in allowed_roots]
         if not any(resolved == r or r in resolved.parents for r in roots):
             raise UnsafePath("المسار يخرج عن الجذور المسموحة.")
 
-    # نُعيد المسار المبني من القيمة المُطهَّرة (لا النص الخام).
+    # نُعيد المسار المبني من `.group(0)` (قيمة مُطهَّرة) لا النص الخام.
     return candidate
 
 

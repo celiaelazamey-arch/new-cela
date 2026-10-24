@@ -37,10 +37,11 @@ from src.core.schemas import MemoryEntry, MemoryKind, StepRecord, StepStatus
 
 logger = logging.getLogger("new-cela.memory")
 
-# Allowlist لتسجيل اسم المسار في السجل — barrier يعترف به CodeQL (نمط store.py).
-# يسمح بحروف/أرقام يونيكود (\w — يشمل العربية)/نقاط/شرطات/مسافات/فواصل مسارات؛
-# أي محرف تحكّم أو سطر جديد ⇒ لا يطابق ⇒ يُحجب الاسم (يمنع CWE-117).
-_SAFE_PATH_LABEL = re.compile(r"[\w .\-/\\]+")
+# Allowlist **ضيّقة** لتسجيل آخر جزء من المسار (basename) — مطابقة تماماً لنمط
+# store.py الناجح: حروف/أرقام/._- فقط، **بلا فواصل مسارات ولا مسافات**.
+# نمرّر basename (لا المسار الكامل) عبر os.path.basename قبل التطابق،
+# فلا يصل أي سطر جديد/محرف تحكّم إلى logger (يمنع CWE-117).
+_SAFE_PATH_LABEL = re.compile(r"[\w.\-]+\Z")
 
 # ---- حدود ثابتة تحمي حجم الطلب والقرص ----
 MAX_CONTENT_CHARS = 600
@@ -520,12 +521,13 @@ class MemoryStore:
         self._entries = entries
         self._ids = {item.id for item in entries}
         self._needs_compaction = bool(self._skipped_lines or duplicates or trimmed)
-        # ✅ BARRIER محلي مطابق لنمط cognitive/store.py::_RUN_ID.fullmatch:
-        # نتحقق بـ fullmatch على المتغير ثم نسجّل *نفس المتغير* بعد الـ guard.
-        # أي سطر جديد/محرف تحكّم ⇒ لا يطابق ⇒ يُحجب الاسم (يمنع CWE-117).
-        path_label = str(self.path)
-        if _SAFE_PATH_LABEL.fullmatch(path_label):
-            logger.info("تم تحميل %d ذكرى من %s.", len(entries), path_label)
+        # ✅ BARRIER مطابق لنمط store.py: نأخذ basename ثم allowlist ضيّقة،
+        # والقيمة المسجَّلة هي `.group(0)` الناتجة من match — لا المسار الخام.
+        # أي سطر جديد/محرف تحكّم ⇒ لا يطابق ⇒ يُحجب الاسم كلياً (CWE-117).
+        base_label = os.path.basename(str(self.path))
+        label = _SAFE_PATH_LABEL.fullmatch(base_label)
+        if label is not None:
+            logger.info("تم تحميل %d ذكرى من %s.", len(entries), label.group(0))
         else:
             logger.info("تم تحميل %d ذكرى (اسم المسار محجوب).", len(entries))
 

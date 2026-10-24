@@ -194,9 +194,19 @@ def test_sanitize_for_log_removes_ansi_escape() -> None:
 
 
 def test_safe_path_label_pattern_rejects_newline() -> None:
-    """نمط الـ label في memory.py يرفض الأسطار الجديدة فعلياً."""
+    """نمط الـ label الضيّق في memory.py يرفض الأسطار الجديدة والفواصل."""
     import re
-    label_pattern = re.compile(r"[\w .\-/\\]+")
-    assert label_pattern.fullmatch("مسار/آمن.jsonl")
+    label_pattern = re.compile(r"[\w.\-]+\Z")  # مطابق لـ _SAFE_PATH_LABEL
+    assert label_pattern.fullmatch("memory.jsonl")
+    assert label_pattern.fullmatch("مسار_آمن.jsonl")  # عربي مسموح
     assert label_pattern.fullmatch("path\nATTACKER") is None
     assert label_pattern.fullmatch("path\x00bad") is None
+    assert label_pattern.fullmatch("dir/file.jsonl") is None  # لا فواصل مسارات
+
+
+def test_safe_path_rejects_embedded_traversal_via_lookahead() -> None:
+    """منع `..` مدمج في الـ regex نفسه (لا يعتمد على if منفصل)."""
+    from src.core.path_guard import _SAFE_PATH
+    assert _SAFE_PATH.fullmatch("sub/../etc") is None
+    assert _SAFE_PATH.fullmatch("a..b") is None       # حتى غير المساري مرفوض دفاعاً
+    assert _SAFE_PATH.fullmatch("sub/file.json") is not None
