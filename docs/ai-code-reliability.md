@@ -187,12 +187,20 @@ Commit    → دفع إلى origin/arena/1756fb0e-new-cela + انتظار CI
 
 ---
 
-## ما لم يُنفَّذ بعد (بموافقة)
+## تحديث 2026-10-23 — ما نُفِّذ من هذه القائمة
+
+| البند | الإجراء | الحالة |
+|---|---|---|
+| 16 | تأمين `agent-runner`: حدّ طول + تنقيح + تقييد `author_association` + منع `--yes` | ✅ مُنفَّذ |
+| 2 | عزل `browser-use` ⇒ تقليل Version mismatch؛ والحارس يمنع الاستيراد غير المعلن | ✅ مُنفَّذ جزئياً (lockfile باقٍ) |
+| 11 | تثبيت `requirements-integrations.txt` في CI + runner مُثبَّت `ubuntu-24.04` | ✅ مُنفَّذ |
+| 1/3 | `dependency_guard --require-installed` صار صارماً في CI بعد تثبيت كل المتطلبات | ✅ مُنفَّذ |
+| 6 | 30 موضع `except` — أُضيفت اختبارات صريحة لسياسة الأخطاء والقاطع | ✅ تغطية أفضل |
+
+### ما لم يُنفَّذ بعد (بموافقة)
 
 | الأولوية | الإجراء |
 |---|---|
-| 🔴 | تأمين `agent-runner` ضد حقن التوجيه (البند 16) |
 | 🟠 | lockfile (`uv.lock` / `pip-compile`) — البند 2 |
-| 🟠 | تثبيت `requirements-integrations.txt` في CI أو توثيق استبعاده |
 | 🟡 | Docker لتوحيد البيئة — البند 11 |
 | 🟡 | property-based tests + profiling — البندان 4 و13 |

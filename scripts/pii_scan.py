@@ -47,6 +47,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "celia@example.invalid",
         "user@example.com",
         "test@example.com",
+        "01012345678",
     }
 )
 

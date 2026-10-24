@@ -33,6 +33,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "AIzaSyD-1234567890abcdefghijklmnop",
         "gsk_abcdefghijklmnopqrstuvwxyz123456",
         "sk-or-v1-abcdef1234567890abcdef",
+        "AIzaSyDUMMY1234567890123456789012345",
     }
 )
 

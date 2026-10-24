@@ -48,7 +48,18 @@ def build_parser() -> argparse.ArgumentParser:
         prog="new-cela",
         description="نظام وكلاء ذكي مستقل — تشغيل مجاني بالكامل",
     )
-    parser.add_argument("--task", "-t", required=True, help="المهمة المطلوبة من الوكيل")
+    # --task يبقى مطلوباً لكل الأنماط عدا --health (فحص جاهزية بلا تنفيذ).
+    parser.add_argument("--task", "-t", default=None, help="المهمة المطلوبة من الوكيل")
+    parser.add_argument(
+        "--health",
+        action="store_true",
+        help="فحص جاهزية المزودات وحالة قواطع الدائرة — بلا نداءات شبكية",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="إخراج نتيجة --health بصيغة JSON (للـ CI والمراقبة)",
+    )
     parser.add_argument(
         "--mode",
         "-m",
@@ -389,6 +400,28 @@ async def run_agent(args: argparse.Namespace) -> str | TaskResult:
 
 def main() -> int:
     args = build_parser().parse_args()
+
+    # ---- فحص الجاهزية: لا يُجري نداءات شبكية ولا ينفّذ أي مهمة ----
+    if args.health:
+        import json as _json
+
+        report = LLMRouter().health()
+        if args.json:
+            print(_json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print("=== فحص جاهزية النظام ===")
+            for name, info in report["providers"].items():
+                state = "🟢 جاهز" if not info["circuit_open"] else "🔴 دائرة مفتوحة (تهدئة)"
+                print(f"  {name}: {state}")
+            print(f"  الحالة العامة: {'✅ سليم' if report['healthy'] else '⚠️ غير جاهز'}")
+            print(f"  قواطع الدائرة: {report['circuit_breaker']}")
+        return 0 if report["healthy"] else 2
+
+    # ---- التحقق اليدوي من --task (لأن --health يعفي منه) ----
+    if not args.task or not args.task.strip():
+        print("❌ الوسيط --task مطلوب (إلا مع --health).", file=sys.stderr)
+        return 2
+
     try:
         output = asyncio.run(run_agent(args))
     except Exception as exc:  # noqa: BLE001 — مقصود: حاجز أخير لواجهة CLI

@@ -60,17 +60,24 @@ new-cela/
 │   └── test_dashboard.py          # التتبع + اللوحة (بما فيها ابتلاع الواجهة)
 ├── .env.example                   # نموذج متغيرات البيئة
 ├── .gitignore                     # عزل .env والمخرجات
-├── requirements.txt               # المتطلبات المثبَّتة والمتحقق منها
+├── requirements.txt               # النواة الآمنة (بلا aiohttp)
+├── requirements-browser.txt       # أتمتة المتصفح — اختياري، راجع SECURITY.md
+├── requirements-integrations.txt  # Google Drive — اختياري
+├── requirements-ocr.txt           # PDF/صور — اختياري
+├── requirements-quantum.txt       # محاكي الكم — اختياري
+├── SECURITY.md                    # السياسة الأمنية
+├── AGENT_HANDOFF.md               # سجل الاستئناف بين الجلسات
 └── README.md
 ```
 
-> ⚠️ **قرار معماري مهم — توثيق تعارض التبعيات:**
-> تم تثبيت `browser-use>=0.9.7,<0.10.0` لأن الإصدارات 0.10+ تفرض تثبيتات حصرية
-> (`pydantic==2.13.5`, `groq==1.0.0`, `google-genai==1.65.0`) لا تتوافق مع pydantic الحديث.
-> كما تم تجنب حزم `langchain-google-genai` / `langchain-groq` لأنها تتعارض مع
-> نطاقات browser-use (`google-genai>=2.20` مقابل `google-genai<2.0`).
-> **الحل المعتمد:** استخدام نماذج المحادثة الأصلية المدمجة في browser-use
-> (`browser_use.llm.ChatGoogle` و `browser_use.llm.ChatGroq`) — بدون LangChain إطلاقاً.
+> ✅ **قرار معماري محدَّث (2026-10-23):**
+> يستخدم `LLMRouter` الآن **العملاء الرسميين** `google-genai` و`groq` مباشرة
+> (بلا LangChain، وبلا وسيط). هذا فكّ الارتباط عن `browser_use.llm` وسمح بنقل
+> ميزة المتصفح إلى ملف **اختياري** `requirements-browser.txt`، فيصبح التثبيت
+> الافتراضي خالياً من `aiohttp==3.12.15` ذي الثغرات المعروفة.
+> **لتفعيل التصفح:** `pip install -r requirements-browser.txt` ثم
+> `python -m src.main --mode browser --task "..."` — راجع [`SECURITY.md`](SECURITY.md).
+> فحص الجاهزية: `python -m src.main --health --json`.
 
 ---
 
@@ -253,7 +260,9 @@ python -m src.main --task "لخّص ما نعرفه عن تكلفة التحسي
 python scripts/e2e_knowledge_quantum.py
 ```
 
-الاعتماديات اختيارية ومنفصلة: `requirements-integrations.txt` و`requirements-quantum.txt`.
+الاعتماديات اختيارية ومنفصلة: `requirements-integrations.txt` (Google Drive)،
+`requirements-quantum.txt` (محاكي الكم)، `requirements-ocr.txt` (PDF/صور)،
+و`requirements-browser.txt` (أتمتة المتصفح — **راجع SECURITY.md قبل تركيبها**).
 بدونها يعمل النظام كما هو، وتُصدر الدوال رسالة إرشادية بدل انهيار.
 
 ### المزامنة الثنائية — كيف تُنفَّذ بأمان

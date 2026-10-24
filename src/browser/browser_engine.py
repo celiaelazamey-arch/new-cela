@@ -7,6 +7,9 @@
 عقد الاستخدام مُتحقَّق منه مقابل browser-use 0.9.x:
     Agent(task=..., llm=...) ثم await agent.run(max_steps=...)
 حيث llm من نوع browser_use.llm.base.BaseChatModel (ChatGoogle أو ChatGroq).
+
+⚠️ هذه **ميزة اختيارية**: `browser-use` لم يعد في المتطلبات الأساسية.
+ثبّته عبر `pip install -r requirements-browser.txt` عند الحاجة فقط.
 """
 from __future__ import annotations
 
