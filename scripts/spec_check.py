@@ -56,6 +56,7 @@ CONTRACTS: dict[str, dict[str, str]] = {
     "scripts/pii_scan.py": {"main": "func"},
     "scripts/error_guard.py": {"main": "func"},
     "scripts/policy_guard.py": {"main": "func"},
+    "scripts/action_pin_guard.py": {"main": "func"},
 }
 
 # ملفات مرجعية يجب أن تظل موجودة (meta-instructions + أدلة).
@@ -66,6 +67,7 @@ REQUIRED_DOCS = (
     "docs/security-threat-model.md",
     "docs/ai-code-reliability.md",
     "docs/agent-failure-patterns.md",
+    "docs/ci-cd-free-tier.md",
     "docs/compliance-framework.md",
 )
 

@@ -66,6 +66,7 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | لا `except: pass` ولا ابتلاع بلا توثيق | `error_guard.py` | `scripts/error_guard.py` |
 | لا تعطيل للسياسة/الحصص/المصادقة | `policy_guard.py` | `scripts/policy_guard.py` |
 | لا استيراد حزمة غير معلنة | `dependency_guard.py` | `scripts/dependency_guard.py` |
+| **كل Actions مثبّتة بـ commit SHA** | `action_pin_guard.py` | `scripts/action_pin_guard.py` |
 | لا أسرار في الملفات المتتبَّعة | `secret_scan.py` | `scripts/secret_scan.py` |
 | لا بيانات شخصية في مستودع عام | `pii_scan.py` | `scripts/pii_scan.py` |
 | تدقيق الثغرات على النواة (صارم) | `pip-audit` في CI | `.github/workflows/quality-gate.yml` |
@@ -77,10 +78,11 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 python scripts/error_guard.py
 python scripts/policy_guard.py
 python scripts/dependency_guard.py --require-installed
+python scripts/action_pin_guard.py
 python scripts/secret_scan.py
 python scripts/pii_scan.py
 ruff check .
-pytest -q
+pytest -q --cov=src --cov-fail-under=60
 ```
 
 > ⚠️ **تنبيه مفسّر:** شغّل الفواحص بنفس مفسّر المشروع (`.venv/bin/python`).
@@ -156,6 +158,7 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 | [`docs/security-threat-model.md`](docs/security-threat-model.md) | 17 بند تهديد مُقيَّمة |
 | [`docs/ai-code-reliability.md`](docs/ai-code-reliability.md) | موثوقية مخرجات الوكيل (16 بنداً) |
 | [`docs/agent-failure-patterns.md`](docs/agent-failure-patterns.md) | أنماط فشل الـ coding agents (12 بنداً) |
+| [`docs/ci-cd-free-tier.md`](docs/ci-cd-free-tier.md) | مقارنة منصات CI المجانية + حدود مُتحقَّقة + SHA pinning |
 | [`docs/compliance-framework.md`](docs/compliance-framework.md) | EU AI Act + قانون مصر 151/2020 |
 | [`docs/incident-response.md`](docs/incident-response.md) | خطة الـ 72 ساعة |
 | [`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) | إفصاح المادة 50 |

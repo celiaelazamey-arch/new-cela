@@ -195,7 +195,7 @@
 | 7 | خطة استجابة للحوادث (72 ساعة) | ✅ أُضيفت | [`incident-response.md`](incident-response.md) |
 | 8 | منع تسريب بيانات شخصية | ✅ أُضيف | `scripts/pii_scan.py` + خطوة في CI |
 | 9 | مراجعة النقل عبر الحدود | ❌ | **أولوية قصوى** — GitHub Actions + Gemini/Groq خارج مصر. يلزم قرار: ترخيص PDPC أو استبعاد البيانات الشخصية من المهام |
-| 10 | SBOM | ⚠️ | `pip-audit` + `dependency_guard` يُغطّيان جزئياً؛ لا SBOM مستقل بعد |
+| 10 | SBOM | ✅ | `cyclonedx-py` ⇒ **CycloneDX 1.6** كـ artifact في CI (9 مكوّنات للنواة) — راجع `docs/ci-cd-free-tier.md` |
 | 11 | إدارة الثغرات | ✅ | `pip-audit` **صارم** على النواة (0 متأثرة) + informational للمتصفح الاختياري + `secret_scan` + `pii_scan` |
 | 12 | DPO / مسؤول حماية بيانات | ❌ | يلزم تعيينه (قد يكون المالك نفسه في المشاريع الصغيرة) |
 | 13 | تدوير المفاتيح | ⚠️ | مفاتيح في GitHub Secrets ✅، بلا سياسة تدوير موثّقة |

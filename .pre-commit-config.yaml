@@ -56,6 +56,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: action-pin-guard
+        name: Action Pin Guard — تثبيت Actions بـ SHA (supply chain)
+        entry: python scripts/action_pin_guard.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: ruff
         name: Ruff — جودة الأسلوب
         entry: ruff check .

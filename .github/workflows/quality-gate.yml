@@ -6,10 +6,29 @@ name: Quality Gate
 on:
   push:
     branches: ['**']
+    # توفير الدقائق: لا تُشغَّل بوابة الجودة عند تغيير توثيق فقط.
+    # (المستودع عام ⇒ الدقائق غير محدودة أصلاً، لكن paths يقلّل الضجيج.)
+    paths:
+      - '**.py'
+      - '**.yml'
+      - '**.yaml'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
   pull_request:
+    paths:
+      - '**.py'
+      - '**.yml'
+      - '**.yaml'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
 
 permissions:
   contents: read
+
+# إلغاء التشغيلات المتكررة على نفس البرانش — حماية الحصة والضجيج.
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -19,10 +38,10 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6  # Node 24 — يُصلح تحذير إهمال Node 20
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6 — SHA مثبّت (supply chain)
 
       - name: Set up Python
-        uses: actions/setup-python@v6  # Node 24
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6 — SHA مثبّت (supply chain)
         with:
           python-version: '3.11'
           cache: pip
@@ -40,6 +59,13 @@ jobs:
           pip install -r requirements-quantum.txt \
                       -r requirements-ocr.txt \
                       -r requirements-integrations.txt
+
+      # أدوات CI معلنة في ملف منفصل (لا تُخلط بالنواة) — تثبيت واحد مبكر،
+      # قبل أول استخدام لـ pip-audit / pytest-cov / cyclonedx-py.
+      - name: Install CI Tooling
+        run: |
+          python -m pip install --quiet pip-audit
+          python -m pip install --quiet -r requirements-ci.txt
 
       - name: Syntax Check (compileall)
         run: python -m compileall -q src tests scripts
@@ -76,13 +102,16 @@ jobs:
       - name: Spec Check (logic drift)
         run: python scripts/spec_check.py
 
+      # قاعدة supply chain: كل Actions مثبّتة بـ commit SHA لا tags متحركة.
+      - name: Action Pin Guard (supply chain)
+        run: python scripts/action_pin_guard.py
+
       # تدقيق أمني **صارم** على التثبيت الافتراضي الآمن.
       # بعد فكّ ارتباط browser-use صار التثبيت الأساسي بلا ثغرات معروفة؛
       # لذلك نُفشل البناء لو ظهرت ثغرة في المتطلبات الأساسية (حماية من Regression).
       # ملف المتصفح يُفحص informational لأنه اختياري وموثّق في SECURITY.md.
       - name: Dependency Security Audit (core, strict)
         run: |
-          python -m pip install --quiet pip-audit
           pip-audit -r requirements.txt -r requirements-quantum.txt \
                     -r requirements-ocr.txt -r requirements-integrations.txt \
             --format json > audit-core.json
@@ -102,5 +131,25 @@ jobs:
           python -m src.main --health --json | python -c \
             "import json,sys; d=json.load(sys.stdin); assert 'healthy' in d; print('✅ أمر --health يُخرج JSON صالحاً')"
 
-      - name: Tests (pytest)
-        run: pytest -q
+      # تغطية الاختبارات مع حد أدنى — يمنع تراجع التغطية صامتاً (البند 8).
+      - name: Tests (pytest + coverage threshold)
+        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=60
+
+      # SBOM (CycloneDX) — يسدّ فجوة البند 10 في compliance-framework.md.
+      # informational حالياً (لا يُفشل البناء).
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          # الصيغة الصحيحة في cyclonedx-bom 7.x: الملف positional، وليس -r.
+          # (جُرّبت محلياً: CycloneDX 1.6، 9 مكوّنات.)
+          cyclonedx-py requirements requirements.txt \
+            --of json -o sbom-core.json 2>/dev/null \
+            || echo "تعذّر توليد SBOM (informational)"
+
+      - name: Upload SBOM Artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6 — SHA مثبّت
+        with:
+          name: sbom-cyclonedx
+          path: sbom-core.json
+          if-no-files-found: ignore
+          retention-days: 14

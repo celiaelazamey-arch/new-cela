@@ -181,3 +181,44 @@ def test_spec_check_original_requirements_recorded():
     """المتطلبات الأصلية الستة لا تُحذف (حماية من فقدان السياق)."""
     assert len(spec_check.ORIGINAL_REQUIREMENTS) >= 6
     assert any("فقدان" in r for r in spec_check.ORIGINAL_REQUIREMENTS)
+
+
+# ================= action_pin_guard =================
+
+def test_action_pin_guard_detects_movable_tag(tmp_path: Path, monkeypatch):
+    """uses: owner/repo@v1 ⇒ يُمسك كمرجع متحرك."""
+    from scripts import action_pin_guard as apg
+
+    wf = tmp_path / "bad.yml"
+    wf.write_text("steps:\n  - uses: actions/checkout@v4\n", encoding="utf-8")
+    issues = apg.check_file(wf)
+    assert any("متحرك" in i for i in issues)
+
+
+def test_action_pin_guard_accepts_full_sha(tmp_path: Path):
+    """uses بـ SHA من 40 حرفاً ⇒ مقبول."""
+    from scripts import action_pin_guard as apg
+
+    wf = tmp_path / "good.yml"
+    sha = "d23441a48e516b6c34aea4fa41551a30e30af803"
+    wf.write_text(f"steps:\n  - uses: actions/checkout@{sha}  # v6\n", encoding="utf-8")
+    assert apg.check_file(wf) == []
+
+
+def test_action_pin_guard_allows_local_action(tmp_path: Path):
+    """مرجع محلي ./ مسموح بلا SHA."""
+    from scripts import action_pin_guard as apg
+
+    wf = tmp_path / "local.yml"
+    wf.write_text("steps:\n  - uses: ./.github/actions/mine\n", encoding="utf-8")
+    assert apg.check_file(wf) == []
+
+
+def test_action_pin_guard_real_workflows_clean():
+    """كل workflows المستودع مثبّتة فعلاً (دليل لا ادعاء)."""
+    from scripts import action_pin_guard as apg
+
+    violations: list[str] = []
+    for path in sorted(apg.WORKFLOW_DIR.glob("*.y*ml")):
+        violations.extend(apg.check_file(path))
+    assert violations == [], f"مراجع متحركة: {violations}"
