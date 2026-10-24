@@ -446,7 +446,9 @@ def test_pipeline_enables_subprocess_isolation_by_default_and_manages_tenant_cac
     # مستأجر آخر لا يرى كاش المستأجر الأول
     _res3, cached3 = pipeline.process(sample, allowed_root=tmp_path, tenant_id="tenant_alex")
     assert cached3 is False
-    assert PIPELINE_VERSION in pipeline.cache_key_for(res1.id, tenant_id="tenant_cairo")
+    assert pipeline.cache_key_for(res1.id, tenant_id="tenant_cairo") == (
+        f"tenant_cairo:{PIPELINE_VERSION}:{pipeline._limits.fingerprint()}:{res1.id}"
+    )
 
     # رفض tenant_id فارغ أو غير صالح
     with pytest.raises(ValueError, match="invalid_tenant_id"):
@@ -1449,3 +1451,80 @@ def test_default_pipeline_stages_and_hashes_source_in_single_parent_pass(
     assert not from_cache
     assert result.id.startswith("sha256:")
     assert copy_calls == 1
+
+
+def test_streaming_stage_limit_blocks_file_growth_and_skips_cache(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "oversized.txt"
+    source.write_bytes(b"0123456789")
+    pipeline = IngestionPipeline(limits=IngestionLimits(max_file_size_bytes=4, isolate_in_subprocess=True))
+
+    result, from_cache = pipeline.process(source, allowed_root=tmp_path)
+
+    assert not from_cache
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "file_size_limit_exceeded"
+    assert result.warnings == ["file_size_limit_exceeded: max_file_size=4"]
+    assert result.size == 4
+    assert not pipeline._cache
+
+
+def test_worker_json_rejects_integer_conversion_limit(tmp_path: Path) -> None:
+    import sys
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.write_text("ok", encoding="utf-8")
+    output_code = "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('{\\\"n\\\":' + '9' * 5000 + '}')"
+    result = pipeline.ingest_file_isolated(
+        source,
+        allowed_root=tmp_path,
+        _worker_cmd=[sys.executable, "-c", output_code, "{worker_out}"],
+    )
+
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "worker_result_invalid"
+    assert any("ValueError" in warning for warning in result.warnings)
+
+
+def test_worker_json_catches_recursion_error(tmp_path: Path) -> None:
+    import sys
+
+    from src.ingestion import pipeline
+
+    source = tmp_path / "input.txt"
+    source.write_text("ok", encoding="utf-8")
+    nested = "[" * 1500 + "0" + "]" * 1500
+    output_code = f"from pathlib import Path; import sys; Path(sys.argv[1]).write_text({nested!r})"
+    result = pipeline.ingest_file_isolated(
+        source,
+        allowed_root=tmp_path,
+        _worker_cmd=[sys.executable, "-c", output_code, "{worker_out}"],
+    )
+
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "worker_result_invalid"
+    assert any("RecursionError" in warning for warning in result.warnings)
+
+
+def test_staging_limit_catches_growth_after_initial_stat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.ingestion import pipeline as pipeline_module
+
+    source = tmp_path / "growing.txt"
+    source.write_bytes(b"abc")  # fstat reports three bytes, under the four-byte cap.
+    chunks = iter((b"abcd", b"e"))
+    monkeypatch.setattr(pipeline_module.os, "read", lambda *_args: next(chunks, b""))
+    pipeline = IngestionPipeline(
+        limits=IngestionLimits(max_file_size_bytes=4, isolate_in_subprocess=True)
+    )
+
+    result, from_cache = pipeline.process(source, allowed_root=tmp_path)
+
+    assert not from_cache
+    assert result.status == IngestionStatus.ZP_OR_EXE_BLOCKED.value
+    assert result.metadata["blocked_reason"] == "file_size_limit_exceeded"
+    assert result.size == 4

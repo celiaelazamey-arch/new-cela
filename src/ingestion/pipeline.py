@@ -601,8 +601,21 @@ def _open_regular_no_follow(path: Path, flags: int, mode: int | None = None) -> 
         raise
 
 
-def _copy_to_private_readonly(source: Path, destination: Path) -> tuple[str, int, bytes]:
-    """Copy from a no-follow regular file into an exclusive mode-0400 staged file."""
+class _StagedFileTooLarge(ValueError):
+    """Raised as soon as streaming bytes exceed the configured file-size cap."""
+
+    def __init__(self, file_id: str, size: int, head: bytes, limit: int) -> None:
+        super().__init__("file_size_limit_exceeded")
+        self.file_id = file_id
+        self.size = size
+        self.head = head
+        self.limit = limit
+
+
+def _copy_to_private_readonly(
+    source: Path, destination: Path, *, max_bytes: int | None = None
+) -> tuple[str, int, bytes]:
+    """Copy/hash a no-follow regular file once, enforcing the cap on streamed bytes."""
     src_fd = _open_regular_no_follow(source, os.O_RDONLY)
     dst_fd: int | None = None
     hasher = hashlib.sha256()
@@ -618,14 +631,23 @@ def _copy_to_private_readonly(source: Path, destination: Path) -> tuple[str, int
             0o400,
         )
         while chunk := os.read(src_fd, CHUNK_SIZE_BYTES):
+            exceeded_limit = max_bytes is not None and total_size + len(chunk) > max_bytes
+            staged_chunk = chunk[: max(0, max_bytes - total_size)] if exceeded_limit else chunk
             if len(head) < 4096:
-                head.extend(chunk[: 4096 - len(head)])
-            hasher.update(chunk)
-            total_size += len(chunk)
-            view = memoryview(chunk)
-            while view:
-                written = os.write(dst_fd, view)
-                view = view[written:]
+                head.extend(staged_chunk[: 4096 - len(head)])
+            hasher.update(staged_chunk)
+            total_size += len(staged_chunk)
+            view = memoryview(staged_chunk)
+            try:
+                while view:
+                    written = os.write(dst_fd, view)
+                    view = view[written:]
+            finally:
+                view.release()
+            if exceeded_limit:
+                raise _StagedFileTooLarge(
+                    f"sha256:{hasher.hexdigest()}", total_size, bytes(head), max_bytes
+                )
         if hasattr(os, "fchmod"):
             os.fchmod(dst_fd, 0o400)
         else:  # pragma: no cover - platform fallback
@@ -1882,7 +1904,9 @@ def ingest_file_isolated(
         out_path = Path(isolated_cwd) / "result.json"
         try:
             if _staged_identity is None:
-                file_id, size_bytes, head = _copy_to_private_readonly(guarded_path, worker_file)
+                file_id, size_bytes, head = _copy_to_private_readonly(
+                    guarded_path, worker_file, max_bytes=active_limits.max_file_size_bytes
+                )
             else:
                 file_id, size_bytes, head = _staged_identity
             mime, warnings = detect_magic_mime(head, clean_name)
@@ -1949,11 +1973,20 @@ def ingest_file_isolated(
                 if result.id != file_id:
                     return blocked("worker_result_identity_mismatch")
                 return result
+            except (RecursionError, ValueError) as exc:
+                if proc is not None and proc.poll() is None:
+                    terminate_worker(proc)
+                reason = "worker_result_invalid" if proc is not None and proc.returncode == 0 else "parser_crash"
+                return blocked(reason, f"{type(exc).__name__}: {exc}")
             except Exception as exc:  # noqa: BLE001
                 if proc is not None and proc.poll() is None:
                     terminate_worker(proc)
                 reason = "worker_result_invalid" if proc is not None and proc.returncode == 0 else "parser_crash"
                 return blocked(reason, f"{type(exc).__name__}: {exc}")
+        except _StagedFileTooLarge as exc:
+            file_id, size_bytes = exc.file_id, exc.size
+            mime, warnings = detect_magic_mime(exc.head, clean_name)
+            return blocked("file_size_limit_exceeded", f"max_file_size={exc.limit}")
         except Exception as exc:  # noqa: BLE001
             return blocked("parser_subprocess_staging_error", f"{type(exc).__name__}: {exc}")
 
@@ -2495,20 +2528,39 @@ class IngestionPipeline:
         safe_path = guard_path(raw_path, allowed_roots=(root,), must_stay_under_root=True).resolve(strict=True)
         if not safe_path.is_relative_to(root):
             raise ValueError("file_outside_allowed_root_after_realpath")
+        cacheable = True
         if self._limits.isolate_in_subprocess and self._av_scanner is None:
             with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as staging_dir:
                 os.chmod(staging_dir, 0o700)
                 staged_file = Path(staging_dir) / sanitize_filename(safe_path.name)
-                staged_identity = _copy_to_private_readonly(safe_path, staged_file)
-                cache_key = self.cache_key_for(staged_identity[0], tenant_id=tenant_id)
-                if cache_key in self._cache:
-                    return (self._cache[cache_key][1], True)
-                result = ingest_file_isolated(
-                    staged_file,
-                    allowed_root=staging_dir,
-                    limits=self._limits,
-                    _staged_identity=staged_identity,
-                )
+                try:
+                    staged_identity = _copy_to_private_readonly(
+                        safe_path, staged_file, max_bytes=self._limits.max_file_size_bytes
+                    )
+                except _StagedFileTooLarge as exc:
+                    cacheable = False
+                    result = IngestionResult(
+                        id=exc.file_id,
+                        name=sanitize_filename(safe_path.name),
+                        mime=detect_magic_mime(exc.head, safe_path.name)[0],
+                        size=exc.size,
+                        status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
+                        parser="staging_limit_guard",
+                        language=None,
+                        text="",
+                        metadata={"blocked_reason": "file_size_limit_exceeded"},
+                        warnings=[f"file_size_limit_exceeded: max_file_size={exc.limit}"],
+                    )
+                else:
+                    cache_key = self.cache_key_for(staged_identity[0], tenant_id=tenant_id)
+                    if cache_key in self._cache:
+                        return (self._cache[cache_key][1], True)
+                    result = ingest_file_isolated(
+                        staged_file,
+                        allowed_root=staging_dir,
+                        limits=self._limits,
+                        _staged_identity=staged_identity,
+                    )
         else:
             file_id, _, _ = _stream_sha256_and_head(safe_path)
             cache_key = self.cache_key_for(file_id, tenant_id=tenant_id)
@@ -2520,10 +2572,11 @@ class IngestionPipeline:
                 limits=self._limits,
                 av_scanner=self._av_scanner,
             )
-        if len(self._cache) >= self._max_cache_entries:
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
-        self._cache[cache_key] = (time.monotonic(), result)
+        if cacheable:
+            if len(self._cache) >= self._max_cache_entries:
+                oldest_key = next(iter(self._cache))
+                del self._cache[oldest_key]
+            self._cache[cache_key] = (time.monotonic(), result)
 
         bucket = self._stats_by_mime.setdefault(
             result.mime,

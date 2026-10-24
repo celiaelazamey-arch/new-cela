@@ -125,11 +125,13 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
 ## ✅ 5. التحقق المنفذ وحدود الاستنتاج
 
 - `ruff check .`: ناجح.
-- `pytest -q`: **636 passed, 68 warnings** (تنبيهات اعتماد قديم من Qiskit وتحذير duplicate ZIP test).
+- `pytest -q`: **640 passed** بعد آخر تعديلات P0.6؛ التحذيرات الظاهرة في suite الكاملة هي `DeprecationWarning` من اعتماد Qiskit وتحذير duplicate ZIP test. كما مرّت اختبارات الاستيعاب/حارس المسارات مع `-W error::ResourceWarning`.
 - فحوص التغطية المركزة:
   `pytest -q tests/test_ingestion.py tests/test_path_guard_security.py --cov=src.ingestion.pipeline --cov=src.core.path_guard --cov-branch --cov-report=term-missing:skip-covered`
-  أعادت **178 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`، و`guard_path`. هذا لا يعني 100% للوحدتين بالكامل: pipeline الإجمالي 89% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.
-- `spec_check.py`, `policy_guard.py`, `secret_scan.py`, `dependency_guard.py`, و`pii_scan.py` نجحت. `dependency_guard.py` أبلغ عن غياب اختياري لـ`browser-use` من بيئة الاختبار.
-- **لم يُنتج/يُشغّل `security_audit.py`** لغياب `audit-report.json` الذي يتطلبه (تقرير `pip-audit` منفصل). لم تُنفذ مصفوفة الملفات الواقعية بعد؛ سجلها في [مصفوفة الاختبار اليدوي](file-ingestion-manual-test-matrix.md).
+  أعادت **182 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`، و`guard_path`. هذا لا يعني 100% للوحدتين بالكامل: pipeline الإجمالي 89% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.
+- `spec_check.py`, `policy_guard.py`, `secret_scan.py`, `dependency_guard.py`، و`pii_scan.py` نجحت. أبلغ `dependency_guard.py` عن غياب اختياري لـ`browser-use` من بيئة الاختبار.
+- شُغّل `pip-audit -r requirements.txt --format json --vulnerability-service pypi` إلى تقرير مؤقت خارج الريبو، ثم `security_audit.py` عليه: **58 حزمة محلولة، 0 متأثرة، ولا ثغرات معروفة** في هذا الفحص. التقرير المؤقت ليس مرفقاً في Git، والنتيجة لقطة وقتية لا ضماناً مستقبلياً.
+- تغطية الدوال الإضافية التي طُلبت مراجعتها: `detect_magic_mime` مكتملة (لا أسطر/فروع ناقصة). ما زالت هناك تغطية ناقصة في `scan_for_malware` (الأسطر 884–886 و893–895)، `detect_and_decode_text_with_confidence` (983، 985، 1015–1020)، `_extract_openxml_document` (1522–1535، 1579، 1604–1605، 1615)، و`_extract_psd_header` (1727، 1732). هذه فجوات معلنة ولم تُغلق بعد؛ راجع تقرير coverage الحالي قبل اعتبار فروع الرفض/التحذير مغطاة.
+- لم تُنفذ مصفوفة الملفات الواقعية بعد؛ سجلها في [مصفوفة الاختبار اليدوي](file-ingestion-manual-test-matrix.md).
 - حفظ SVG الأصلي دون تغيير لم يُتحقق منه؛ طبقة `pipeline.py` تنتج المعاينة المعقّمة فقط ولا تثبت سلوك طبقة التخزين.
 - لا تُعد نتائج CI أو unit tests بديلاً عن مصفوفة الاختبار الواقعية أو مراجعة أمنية مستقلة.
