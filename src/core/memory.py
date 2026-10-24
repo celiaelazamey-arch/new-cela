@@ -37,12 +37,6 @@ from src.core.schemas import MemoryEntry, MemoryKind, StepRecord, StepStatus
 
 logger = logging.getLogger("new-cela.memory")
 
-# Allowlist **ضيّقة** لتسجيل آخر جزء من المسار (basename) — مطابقة تماماً لنمط
-# store.py الناجح: حروف/أرقام/._- فقط، **بلا فواصل مسارات ولا مسافات**.
-# نمرّر basename (لا المسار الكامل) عبر os.path.basename قبل التطابق،
-# فلا يصل أي سطر جديد/محرف تحكّم إلى logger (يمنع CWE-117).
-_SAFE_PATH_LABEL = re.compile(r"[\w.\-]+\Z")
-
 # ---- حدود ثابتة تحمي حجم الطلب والقرص ----
 MAX_CONTENT_CHARS = 600
 MAX_RENDERED_CHARS = 1400
@@ -521,15 +515,12 @@ class MemoryStore:
         self._entries = entries
         self._ids = {item.id for item in entries}
         self._needs_compaction = bool(self._skipped_lines or duplicates or trimmed)
-        # ✅ BARRIER مطابق لنمط store.py: نأخذ basename ثم allowlist ضيّقة،
-        # والقيمة المسجَّلة هي `.group(0)` الناتجة من match — لا المسار الخام.
-        # أي سطر جديد/محرف تحكّم ⇒ لا يطابق ⇒ يُحجب الاسم كلياً (CWE-117).
-        base_label = os.path.basename(str(self.path))
-        label = _SAFE_PATH_LABEL.fullmatch(base_label)
-        if label is not None:
-            logger.info("تم تحميل %d ذكرى من %s.", len(entries), label.group(0))
-        else:
-            logger.info("تم تحميل %d ذكرى (اسم المسار محجوب).", len(entries))
+        # ✅ Log-Injection sanitizer المعترف به في CodeQL (LogInjectionCustomizations):
+        # `.replace("\n", …)` مباشرة على القيمة المسجَّلة = ReplaceLineBreaksSanitizer.
+        # basename يقلّل السطح، والـ replace يمنع تزييف أسطار السجل (CWE-117).
+        # لا regex هنا ⇒ لا py/polynomial-redos.
+        path_label = os.path.basename(str(self.path)).replace("\r\n", "⏎").replace("\n", "⏎").replace("\r", "⏎")
+        logger.info("تم تحميل %d ذكرى من %s.", len(entries), path_label)
 
     def __repr__(self) -> str:  # pragma: no cover - تمثيل تشخيصي
         return f"MemoryStore(path={self.path!r}, entries={len(self)})"

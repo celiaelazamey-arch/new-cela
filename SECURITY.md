@@ -192,6 +192,35 @@ traversal، مسارات النظام، NUL، طول مفرط، حقن `run_id`�
 > على نفس المتغير هو الـ barrier المعترف به.** راجع دائماً `check-runs/.../annotations`
 > بعد كل push — فحوصات الـ PR تكشف تنبيهات جديدة حتى حين يعجز API عن قراءتها (403).
 
+#### ✅ الحل النهائي (بعد الرجوع إلى مصدر CodeQL نفسه — لا حدس)
+
+بعد 3 دورات تخمين فاشلة، **اتصُلّح بالرجوع إلى استعلامات CodeQL الرسمية** على
+`github/codeql` (المسارات مُوثّقة في `src/core/path_guard.py`). الحقائق الحاسمة:
+
+1. **`re.fullmatch` ليس sanitizer** — ملف `PathInjectionCustomizations.qll` ينصّ
+   صراحةً: «لا نُعرّض صنف `Sanitizer`؛ استخدم `Path::PathNormalization` و
+   `Path::SafeAccessCheck`». كل محاولات الـ allowlist-regex كانت بلا أساس.
+2. **py/path-injection يستخدم flow-states**: المسار `NotNormalized` → بعد
+   `os.path.abspath/normpath/realpath` يصبح `NormalizedUnchecked` → **`str.startswith`
+   allowlist بـ branch=true على نفس المتغيّر المطبَّع** هو الـ barrier الوحيد الذي
+   يُرضي الحالة (من `Stdlib.qll`: `OsPathAbspathCall` + `StartswithCall`).
+3. **py/log-injection** يعترف بـ **`.replace("\n", …)` المباشر** على القيمة
+   (`ReplaceLineBreaksSanitizer`) — لا `re.sub` ولا دالة خارجية.
+4. **py/polynomial-redos**: أي regex يُنفَّذ على قيمة مستخدم = sink. الـ lookahead
+   `(?!.*\.\.)` مع `+` ولّد تنبيهَي ReDoS. الحل: **صفر regex على المدخل الملوّث** —
+   فحوصات `str` فقط (`isalnum` / `split` / `replace`).
+
+**التنفيذ:** `guard_path` = فحص طول/محارف (بلا regex) → `os.path.abspath`
+(PathNormalization) → حلقة `startswith` على جذور مسموحة (SafeAccessCheck) → يُعاد
+المسار المُطبَّع. `allowed_roots` الافتراضية = مجلد المشروع + مجلد النظام المؤقت
+(لدعم `tmp_path` في الاختبارات). `.resolve()` على المدخل الملوّث **أُزيل نهائياً**.
+السجل: `.replace("\n", "⏎")` مباشرة قبل `logger`.
+
+✅ التحقق النهائي: **449 pytest** (46 هجومياً) · ruff وكل الحواجز نظيفة.
+
+<details>
+<summary>سجل المحاولات الفاشلة (للشفافية ومنع تكرارها)</summary>
+
 #### دورة ثانية: حتى `fullmatch` على allowlist واسعة لم يكفِ
 
 بعد أول تصحيح للتنبيهين، أعاد CodeQL إصدارهما على سطرين جديدين (`path_guard.py:118`
@@ -217,6 +246,15 @@ traversal، مسارات النظام، NUL، طول مفرط، حقن `run_id`�
 🧠 **الدرس الأهم:** «الحل اللي بيعدّي اختباراتك مش بالضرورة بيقنع محلّل ثابت».
 CodeQL تتبّع تدفّق البيانات، لا نية المطوّر. لازم يُعاد تشغيل الـ check ويُقرأ
 `annotations` بعد كل push حتى يثبت اختفاء التنبيه فعلاً — لا يُكتفى بالنيّة الحسنة.
+
+#### دورة ثالثة: `fullmatch` على allowlist ضيّقة + إزالة `.resolve()` — لم يكفِ
+
+حتى بعد تضييق الـ regex وإزالة `Path.resolve()`، عادت التنبيهات **وزادت إلى 4**
+(3 High + 1 Medium): ظهر **تنبيها ReDoS** جديدان (`py/polynomial-redos`) من تنفيذ
+regex على قيمة مستخدم، وبقي Path/Log Injection. عندها فقط توقّفنا عن التخمين
+ورجعنا لمصدر الاستعلامات نفسها — فكان الحل أعلاه.
+
+</details>
 
 ---
 

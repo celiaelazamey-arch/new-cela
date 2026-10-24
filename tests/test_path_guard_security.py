@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -137,7 +138,10 @@ def test_guard_path_sensitive_prefixes() -> None:
 
 
 def test_guard_path_relative_allowed() -> None:
-    assert guard_path(".agent_memory/memory.jsonl") == Path(".agent_memory/memory.jsonl")
+    """المسار النسبي يُطبَّع إلى مطلق تحت جذر المشروع (PathNormalization)."""
+    result = guard_path(".agent_memory/memory.jsonl")
+    assert result.is_absolute()
+    assert result == Path(os.getcwd()) / ".agent_memory/memory.jsonl"
 
 
 def test_guard_path_root_constraint(tmp_path: Path) -> None:
@@ -172,16 +176,17 @@ def test_guard_run_id_rejects_bad(bad: str) -> None:
     "runs\rATTACKER",
 ])
 def test_guard_path_allowlist_rejects_injection(attack: str) -> None:
-    """رموز الحقن والأسطار الجديدة مرفوضة عبر _SAFE_PATH.fullmatch barrier."""
+    """رموز الحقن والأسطار الجديدة مرفوضة عبر فحص المحارف (بلا regex)."""
     with pytest.raises(UnsafePath):
         guard_path(attack)
 
 
 def test_guard_path_accepts_arabic_dir(tmp_path: Path) -> None:
-    r"""\w يونيكود — المسارات العربية مقبولة (مستخدمون في مصر)."""
+    r"""isalnum() يونيكود — المسارات العربية مقبولة (مستخدمون في مصر)."""
     arabic = "سجلات_التشغيل"
     result = guard_path(arabic)
-    assert result == Path(arabic)
+    assert result.is_absolute()
+    assert result.name == arabic
 
 
 def test_sanitize_for_log_removes_ansi_escape() -> None:
@@ -193,20 +198,43 @@ def test_sanitize_for_log_removes_ansi_escape() -> None:
     assert "RED" in clean  # النص المرئي يبقى but بلا محارف تحكّم
 
 
-def test_safe_path_label_pattern_rejects_newline() -> None:
-    """نمط الـ label الضيّق في memory.py يرفض الأسطار الجديدة والفواصل."""
-    import re
-    label_pattern = re.compile(r"[\w.\-]+\Z")  # مطابق لـ _SAFE_PATH_LABEL
-    assert label_pattern.fullmatch("memory.jsonl")
-    assert label_pattern.fullmatch("مسار_آمن.jsonl")  # عربي مسموح
-    assert label_pattern.fullmatch("path\nATTACKER") is None
-    assert label_pattern.fullmatch("path\x00bad") is None
-    assert label_pattern.fullmatch("dir/file.jsonl") is None  # لا فواصل مسارات
+def test_sanitize_for_log_is_codeql_recognized_replace() -> None:
+    """sanitize_for_log يستخدم .replace مباشرة — الـ sanitizer المعترف به في CodeQL.
+
+    يثبت أن الأسطار الجديدة تُستبدل (ReplaceLineBreaksSanitizer): «path\\nATTACKER»
+    لا يمكن أن تفتح سطر سجل جديداً.
+    """
+    dirty = "path\nATTACKER: fake admin\r\nentry\x00"
+    clean = sanitize_for_log(dirty)
+    assert "\n" not in clean
+    assert "\r" not in clean
+    assert "\x00" not in clean
+    assert "path" in clean
 
 
-def test_safe_path_rejects_embedded_traversal_via_lookahead() -> None:
-    """منع `..` مدمج في الـ regex نفسه (لا يعتمد على if منفصل)."""
-    from src.core.path_guard import _SAFE_PATH
-    assert _SAFE_PATH.fullmatch("sub/../etc") is None
-    assert _SAFE_PATH.fullmatch("a..b") is None       # حتى غير المساري مرفوض دفاعاً
-    assert _SAFE_PATH.fullmatch("sub/file.json") is not None
+def test_guard_path_rejects_embedded_traversal() -> None:
+    """منع `..` كجزء مسار يتم بـ str.split (بلا regex) — يتجنب ReDoS."""
+    for bad in ("sub/../etc", "../x", "a/../../b", "sub\\..\\etc"):
+        with pytest.raises(UnsafePath):
+            guard_path(bad)
+    # المسار السليم مقبول
+    assert guard_path("sub/file.json").is_absolute()
+
+
+def test_no_regex_on_tainted_input_guard() -> None:
+    """الحاجز لا يشغّل أي regex على المدخل ⇒ لا py/polynomial-redos.
+
+    قيمة بتكرار '-' (4001 محرفاً، تحت الحد) كانت ستُبطئ regex قديماً؛
+    الآن تُعالَج بـ str methods خطية ⇒ تُقبل بسرعة وبلا أي استثناء.
+    """
+    long_dashes = "a" + "-" * 4000
+    result = guard_path(long_dashes)  # لا ReDoS: يُعالَج بـ isalnum/split/abspath
+    assert result.is_absolute()
+    assert result.name == long_dashes
+
+
+def test_overlong_path_rejected_before_any_processing() -> None:
+    """ما يتجاوز MAX_PATH_CHARS يُرفض بفحص طول بسيط (لا regex ولا قرص)."""
+    from src.core.path_guard import MAX_PATH_CHARS
+    with pytest.raises(UnsafePath):
+        guard_path("a" * (MAX_PATH_CHARS + 1))
