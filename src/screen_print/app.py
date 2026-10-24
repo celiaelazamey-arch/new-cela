@@ -6,9 +6,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import streamlit as st
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from src.screen_print import (
     FabricShade,
@@ -17,6 +22,12 @@ from src.screen_print import (
     FilmSetRecord,
     InkType,
     calculate_screen_print_job,
+)
+from src.screen_print.design_tools import (
+    build_mockup_prompt,
+    build_pattern_prompt,
+    inspect_print_resolution,
+    summarize_manual_trends,
 )
 from src.screen_print.uploads import inspect_uploaded_image
 
@@ -212,6 +223,127 @@ def render_estimator() -> None:
     st.caption("تحقق من أسعار الخامات والأجور والهدر والضرائب محلياً قبل اعتماد أي سعر.")
 
 
+def render_design_and_mockup() -> None:
+    st.warning(
+        "هذه أدوات صياغة brief فقط: لا يوجد اتصال بـMidjourney أو PatternedAI أو Verve أو Botika أو Photoshop. "
+        "انسخ النص إلى أداة مرخصة تملك صلاحية استخدامها، وراجع شروطها قبل رفع تصميم عميل."
+    )
+    pattern_tab, mockup_tab = st.tabs(["أمر نقش متكرر", "موجز موك أب"])
+    with pattern_tab:
+        with st.form("pattern_prompt_form"):
+            motif = st.text_input("العناصر أو الفكرة *", placeholder="زهور استوائية، أشكال هندسية...")
+            style = st.text_input("الأسلوب *", placeholder="بوهيمي، ألوان مائية، فيكتور...")
+            palette = st.text_input("الألوان *", placeholder="أخضر زيتوني، مرجاني، كريمي")
+            audience = st.text_input("الشريحة أو تفضيلات العميل", placeholder="ملابس أطفال، ألوان هادئة...")
+            repeat = st.checkbox("نقش seamless قابل للتكرار", value=True)
+            submitted = st.form_submit_button("صياغة الأمر")
+        if submitted:
+            try:
+                st.session_state["pattern_prompt"] = build_pattern_prompt(
+                    motif=motif,
+                    style=style,
+                    palette=palette,
+                    target_customer=audience,
+                    repeat=repeat,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+                return
+            else:
+                st.rerun()
+        if prompt := st.session_state.get("pattern_prompt"):
+            st.caption("أمر نصي قابل للنسخ — لم تُولّد صورة ولم يُستدعَ مزود خارجي.")
+            st.code(prompt, language="text")
+
+    with mockup_tab:
+        with st.form("mockup_prompt_form"):
+            garment = st.text_input("المنتج", placeholder="تيشيرت، هودي، tote bag...")
+            model = st.text_input("وصف العارض/العارضة", placeholder="لون البشرة، المقاس، العمر التقريبي...")
+            placement = st.text_input("موضع الطباعة", placeholder="منتصف الصدر، الظهر...")
+            scene = st.text_input("المشهد والإضاءة", placeholder="استوديو بسيط، ضوء نهاري...")
+            submitted = st.form_submit_button("إنشاء موجز الموك أب")
+        if submitted:
+            try:
+                st.session_state["mockup_prompt"] = build_mockup_prompt(
+                    garment=garment,
+                    model_description=model,
+                    print_placement=placement,
+                    scene=scene,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+                return
+            else:
+                st.rerun()
+        if brief := st.session_state.get("mockup_prompt"):
+            st.caption("موجز نصي فقط؛ لم يُنشأ عارض أو mockup فعلي.")
+            st.code(brief, language="text")
+
+
+def render_print_optimization() -> None:
+    st.subheader("فحص دقة ملف الطباعة")
+    st.warning(
+        "هذا فحص أبعاد/DPI فقط. لا يتضمن AI upscaling أو إزالة خلفية أو فصل ألوان spot/DTG، "
+        "ولا يثبت جاهزية الملف للطباعة. لا ترفع تصميماً سرياً إلى المعاينة المشتركة."
+    )
+    uploaded = st.file_uploader(
+        "ملف صورة للفحص (PNG / JPEG / TIFF، حتى 25 MiB)",
+        type=["png", "jpg", "jpeg", "tif", "tiff"],
+        key="print_resolution_upload",
+    )
+    width_cm = st.number_input("عرض الطباعة (سم)", min_value=0.1, max_value=500.0, value=28.0, key="print_width")
+    height_cm = st.number_input("ارتفاع الطباعة (سم)", min_value=0.1, max_value=500.0, value=38.0, key="print_height")
+    target_dpi = st.selectbox("الدقة المطلوبة (DPI)", [150, 300], index=1)
+    if uploaded is None or not st.button("افحص الدقة", key="inspect_resolution"):
+        return
+    try:
+        report = inspect_print_resolution(
+            uploaded.getvalue(),
+            physical_width_cm=float(width_cm),
+            physical_height_cm=float(height_cm),
+            target_dpi=int(target_dpi),
+        )
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    st.write(f"الصيغة: {report.image.format} · الأبعاد: {report.image.width_px} × {report.image.height_px} بكسل")
+    st.write("قناة شفافية موجودة:", "نعم" if report.image.has_alpha else "لا")
+    left, right = st.columns(2)
+    left.metric("DPI أفقي فعلي", f"{report.effective_dpi_x:.1f}")
+    right.metric("DPI رأسي فعلي", f"{report.effective_dpi_y:.1f}")
+    st.write(
+        f"الحد الأدنى الحسابي عند {report.target_dpi} DPI: "
+        f"{report.required_width_px} × {report.required_height_px} بكسل."
+    )
+    if report.meets_target:
+        st.success("الأبعاد تحقق عتبة DPI التي اخترتها حسابياً؛ لا يعني ذلك اعتماد الملف للطباعة.")
+    else:
+        st.error("الأبعاد أقل من عتبة DPI المختارة؛ لا نكبّر الصورة تلقائياً أو بالذكاء الاصطناعي.")
+
+
+def render_trend_notes() -> None:
+    st.subheader("ملاحظات الاتجاهات والتخصيص")
+    st.info(
+        "أدخل ملاحظات رصدتها بنفسك؛ الأداة تحصي الكلمات محلياً فقط. لا تتصل بوسائل التواصل أو المتاجر، "
+        "ولا تتنبأ بالطلب أو تقيس سلوك المشترين."
+    )
+    notes = st.text_area(
+        "ملاحظات/كلمات اتجاه — كل سطر ملاحظة",
+        placeholder="ألوان ترابية في طلبات هذا الأسبوع\\nنقوش زهرية لتيشيرتات الصيف",
+        height=160,
+    )
+    if st.button("لخّص الملاحظات المدخلة", key="summarize_trends"):
+        terms = summarize_manual_trends(notes.splitlines())
+        if not terms:
+            st.info("أدخل ملاحظات أولاً لاحتساب تكرار الكلمات.")
+        else:
+            st.dataframe(
+                [{"الكلمة/الوسم": term, "عدد مرات الورود": count} for term, count in terms],
+                hide_index=True,
+                width="stretch",
+            )
+
+
 def main() -> None:
     st.set_page_config(page_title="مساعد مطبعة السلك سكرين — محلي", page_icon="🖨️", layout="wide")
     st.markdown(
@@ -228,8 +360,15 @@ def main() -> None:
     if flash_message:
         st.success(flash_message)
 
-    archive_tab, inspect_tab, estimate_tab = st.tabs(
-        ["الأرشيف", "فحص صورة فيلم", "تقدير أمر شغل"]
+    archive_tab, inspect_tab, estimate_tab, design_tab, optimization_tab, trends_tab = st.tabs(
+        [
+            "الأرشيف",
+            "فحص صورة فيلم",
+            "تقدير أمر شغل",
+            "التصميم والموك أب",
+            "تحسين الطباعة",
+            "الاتجاهات والتخصيص",
+        ]
     )
     with archive_tab:
         render_archive()
@@ -237,6 +376,12 @@ def main() -> None:
         render_inspection()
     with estimate_tab:
         render_estimator()
+    with design_tab:
+        render_design_and_mockup()
+    with optimization_tab:
+        render_print_optimization()
+    with trends_tab:
+        render_trend_notes()
 
 
 if __name__ == "__main__":

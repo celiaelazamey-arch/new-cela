@@ -112,16 +112,16 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مقبولة** (أكدها المستخدم بطلب فتح PR #19) | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · PR #19 `CLEAN` ✅ | `006d09d` + `5be9536` |
 | 16 | **دستور التشغيل الهندسي والتجاري (18 قاعدة) + القاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + النسخ الاحتياطي وتجربة الاستعادة الفعلية + `CHANGELOG.md`** | ✅ **مقبولة** (اعتُمدت بتفويض المهمة 17) | `docs/operating-playbook-18.md` · `src/core/playbook.py` · `CHANGELOG.md` · **504 pytest ✅** · كل الحواجز وCI ✅ | `be42949` + `b319207` |
 | 17 | **بناء خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py`)** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | Magic Bytes · `cp1256` · `pypdf` · `DOCX` · `PSD/CMYK/DPI` · `SVG XSS/XXE` · `Zip Bomb` · **511 pytest ✅** · كل الحواجز وCI ✅ | `4de40c4` |
-| 18 | **شريحة محلية أولى لمساعد مطابع السلك سكرين: واجهة أرشيف/فحص/تقدير، محلية أحادية المستخدم** | 🟡 **مُنفّذة أولياً — بانتظار مراجعة المستخدم** | Streamlit AppTest + أرشيف CRUD محلي + حدود رفع مؤقتة + **662 pytest ✅** + تغطية كلية **87.95%** + الفحوص المحلية ✅ | قيد الحفظ |
+| 18 | **شريحة محلية أولى لمساعد مطابع السلك سكرين مع أدوات تصميم/موك أب/فحص دقة/ملاحظات ترند** | 🟡 **مُنفّذة أولياً — بانتظار مراجعة المستخدم** | Streamlit AppTest + أرشيف CRUD + رفع مؤقت + prompts + DPI checker + trend notes + **669 pytest ✅** + تغطية كلية **87.88%** + الحواجز المحلية ✅ | قيد الحفظ |
 
 ### الحالة الحالية
 - **المهمة النشطة:** رقم 18 — بناء شريحة محلية أولى لمنتج السلك سكرين، بناءً على اختيار المستخدم؛ لا نشر عام في هذه المرحلة.
 - **الفرع الحالي:** `arena/3c154eae-new-cela` (مرتبط بـ **PR #19** المفتوح كـ Draft؛ لا يُدمج حتى استيفاء بوابات المستخدم السابقة).
 - 📂 **محرك الاستيعاب:** [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) + المرجع [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md)؛ ما تزال مسارات Drive/OCR/قارئ الملفات واختبارات bypass غير مغلقة.
-- 🖨️ **الواجهة المحلية الأولية:** [`src/screen_print/app.py`](src/screen_print/app.py)؛ أرشيف محلي، فحص صورة مؤقت، وتقدير شغل. ليست SaaS ولا تحتوي دخولاً أو تخزيناً سحابياً.
+- 🖨️ **الواجهة المحلية الأولية:** [`src/screen_print/app.py`](src/screen_print/app.py) للأرشيف والفحص والتقدير، prompts للنقوش/الموك أب، فحص DPI، وتلخيص ملاحظات ترند يدوية؛ لا اتصال فعلي بمولدات الصور/الموك أب أو شبكات التواصل/المتاجر. ليست SaaS ولا تحتوي دخولاً أو تخزيناً سحابياً.
 - **التشغيل الخارجي من Arena:** Vercel connector غير متصل؛ workflow_dispatch رُفض سابقاً بـ403 بسبب صلاحيات GitHub؛ لم يحدث نشر أو تشغيل يدوي ناجح.
 - 📜 **مرجع دستور التشغيل (18 قاعدة):** [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) + الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + [`CHANGELOG.md`](CHANGELOG.md).
-- 👕 **محرك وواجهة السلك سكرين المحلية:** [`src/screen_print/engine.py`](src/screen_print/engine.py) · [`src/screen_print/app.py`](src/screen_print/app.py) · فحص الرفع المؤقت [`src/screen_print/uploads.py`](src/screen_print/uploads.py) · توثيق [`docs/screen-print-local-mvp.md`](docs/screen-print-local-mvp.md).
+- 👕 **محرك وواجهة السلك سكرين المحلية:** [`src/screen_print/engine.py`](src/screen_print/engine.py) · [`src/screen_print/app.py`](src/screen_print/app.py) · prompts/فحص DPI/تحليل يدوي [`src/screen_print/design_tools.py`](src/screen_print/design_tools.py) · فحص الرفع المؤقت [`src/screen_print/uploads.py`](src/screen_print/uploads.py) · توثيق [`docs/screen-print-local-mvp.md`](docs/screen-print-local-mvp.md).
 - ⛔ **بوابات الدمج السابقة لـPR #19 ما زالت مفتوحة:** مصفوفة ملفات واقعية خضراء، اختبارات bypass، إثبات حفظ الأصل على تخزين فعلي، ووسم/حماية `untrusted_content`.
 - 🎯 **مرجع استراتيجية النيش العمودي:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
 - 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
@@ -338,14 +338,16 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ---
 
-- **2026-10-24** — **المهمة 18: شريحة محلية أولى لمساعد مطابع السلك سكرين**، بناءً على اختيار المستخدم «شغل هنا أولاً» واختيار المنتج/العميل (مطابع ملابس صغيرة):
-  - **واجهة Streamlit محلية** في `src/screen_print/app.py` بثلاثة تبويبات: إضافة/تحديث/بحث/حذف بطاقة أرشيف، فحص أولي لصورة، وتقدير أمر شغل.
-  - **حدود الرفع:** PNG/JPEG/TIFF فقط، حجم أقصى 25 MiB (server config + فحص تطبيقي)، إطار واحد، 20MP، لا يُستخدم اسم الملف، وصورة مؤقتة تُزال بعد الفحص؛ لا ضمان للمحو الآمن ولا تخزين دائم للصور. لا رفع ملفات حقيقية إلى preview.
-  - **أمان محلي للأرشيف:** حفظ JSONL ذري بـ `os.replace`، `fsync` وصلاحية ملف `0600` على POSIX؛ إضافة حذف محلي للسجل. لا قاعدة بيانات/حسابات/نسخ احتياطي.
-  - **تحسين ذاكرة فحص الصورة:** الحساب يمر على `bytes` دون قائمتين ضخمتين، وفحص الحواف يقتصر على المحيط؛ القياس ما زال heuristic ولا يصادق على جودة الطباعة.
-  - **الواجهة أُطلقت فعلياً على live preview عبر 8501**؛ AppTest لعرض الواجهة وإضافة/بحث/حذف أرشيف محلي، واختبارات حدود الرفع وفشل الحفظ.
-  - **التحقق المحلي النهائي:** `ruff` ✅ · compileall ✅ · error/policy/action-pin/secret/PII/spec guards ✅ · `pytest -q --cov=src --cov-fail-under=60` = **662 passed, 68 warnings, 87.95% coverage**. `dependency_guard --require-installed` يذكر `browser-use` اختيارياً وغير مثبّت؛ لا يفشل الفحص.
-  - **حدود معلنة:** لا تسجيل دخول، لا متعدد مستأجرين، لا API رفع HTTP، لا مزامنة/تخزين سحابي، لا مصادقة إنتاج أو نسخة احتياطية/استعادة، ولا اعتماد على مصفوفة أفلام واقعية. ليس منتجاً عاماً جاهزاً.
+- **2026-10-24** — **المهمة 18: شريحة محلية أولى لمساعد مطابع السلك سكرين وتوسيع أدوات التصميم**، بناءً على اختيار المستخدم «شغل هنا أولاً» والنيش (مطابع ملابس صغيرة):
+  - **واجهة Streamlit محلية** في `src/screen_print/app.py`: أرشيف CRUD، فحص الفيلم، تقدير الشغل، prompts للنقوش المتكررة والموك أب، فحص DPI، وملخص كلمات اتجاهات يدوي.
+  - **Prompt/design tools** في `src/screen_print/design_tools.py`: صياغة prompt مخصص للتكرار والستايل والباليت والجمهور، وbrief موك أب يطلب الحفاظ على العمل الفني، وفحص DPI حسب الأبعاد الفعلية، وإحصاء كلمات من ملاحظات المستخدم. لا يوجد استدعاء Midjourney/PatternedAI/Verve/Botika/Photoshop أو أي مولّد صور.
+  - **القدرات الخارجية غير المنفذة بوضوح:** لا توليد صورة/عارض فعلي، لا AI upscaling أو إزالة خلفية أو فصل ألوان، لا جمع ترندات من الشبكات أو تخصيص متجر متصل؛ المتاح محلياً prompts وفحص DPI وملاحظات يدوية فقط.
+  - **حدود الرفع:** PNG/JPEG/TIFF فقط، حجم أقصى 25 MiB (server config + فحص تطبيقي)، إطار واحد، 20MP، لا يُستخدم اسم الملف، ونسخة مؤقتة تُزال بعد الفحص؛ لا ضمان للمحو الآمن ولا تخزين دائم للصور. لا رفع ملفات حقيقية إلى preview.
+  - **أمان الأرشيف المحلي:** حفظ JSONL ذري بـ `os.replace`، `fsync` وصلاحية ملف `0600` على POSIX؛ إمكانية حذف البطاقة. لا قاعدة بيانات/حسابات/نسخ احتياطي.
+  - **تحسين ذاكرة فحص الصورة:** الحساب يمر على `bytes` دون قائمتين ضخمتين، وفحص الحواف يقتصر على المحيط؛ القياس heuristic وليس اعتماد جودة طباعة.
+  - **الواجهة أُطلقت فعلياً على live preview عبر 8501**؛ اختُبر WebSocket handshake من أصل المعاينة (101 Switching Protocols)، وAppTest يغطي الواجهة والأرشيف/prompt/trend، واختبارات حدود الرفع وفشل الحفظ.
+  - **التحقق المحلي النهائي:** `ruff` ✅ · compileall ✅ · error/policy/action-pin/secret/PII/spec guards ✅ · `pytest -q --cov=src --cov-fail-under=60` = **669 passed, 68 warnings, 87.88% coverage**. `dependency_guard --require-installed` يذكر `browser-use` اختيارياً وغير مثبّت؛ لا يفشل الفحص.
+  - **حدود معلنة:** لا تسجيل دخول، لا متعدد مستأجرين، لا API رفع HTTP عام، لا مزامنة/تخزين سحابي، لا مصادقة إنتاج أو نسخة احتياطية/استعادة، ولا مصفوفة أفلام واقعية. ليس منتجاً عاماً جاهزاً.
   - **Vercel:** connector disconnected؛ لم يُنشأ مشروع أو نشر. **GitHub workflow_dispatch:** فشل سابقاً بـ403؛ لا تدقيق يدوي مؤكد. PR #19 يبقى Draft ولا تُغلق بواباته السابقة (المصفوفة، bypass، إثبات التخزين، `untrusted_content`).
 
 ---
