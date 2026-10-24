@@ -125,7 +125,7 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
 ## ✅ 5. التحقق المنفذ وحدود الاستنتاج
 
 - `ruff check .`: ناجح.
-- `pytest -q`: **640 passed** بعد آخر تعديلات P0.6؛ التحذيرات الظاهرة في suite الكاملة هي `DeprecationWarning` من اعتماد Qiskit وتحذير duplicate ZIP test. كما مرّت اختبارات الاستيعاب/حارس المسارات مع `-W error::ResourceWarning`.
+- `pytest -q`: **644 passed, 68 warnings**؛ الـ67 تحذيراً من `DeprecationWarning` في Qiskit، وتحذير واحد من اختبار ZIP يضيف اسماً مكرراً عمداً. لا تظهر `ResourceWarning`. اختبارات الاستيعاب/حارس المسارات والـrunner: **186 passed** مع `-W error::ResourceWarning`.
 - فحوص التغطية المركزة:
   `pytest -q tests/test_ingestion.py tests/test_path_guard_security.py --cov=src.ingestion.pipeline --cov=src.core.path_guard --cov-branch --cov-report=term-missing:skip-covered`
   أعادت **182 passed, 1 warning**. تغطية الأسطر والفروع **100%** لكل من `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log`، و`guard_path`. هذا لا يعني 100% للوحدتين بالكامل: pipeline الإجمالي 89% في هذا النطاق، والـsuite المركزة ليست suite التطبيق كلها.

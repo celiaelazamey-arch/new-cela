@@ -22,7 +22,9 @@
 
 ### `[0.5.0] - 2026-10-24` — دستور التشغيل (18 قاعدة) + محرك مطبعة السلك سكرين + استراتيجية النيش (PR #19)
 - **دفعة P0.5/P0.6 لعامل الاستيعاب:** حساب الهوية أثناء نسخ مرحلي single-pass؛ staging `0400` داخل temp dir `0700`؛ حماية مصدر ونتيجة العامل من symlink؛ سقف JSON 5 MiB و`RLIMIT_FSIZE=6 MiB` مع اقتطاع مقصود ومعالجة `EFBIG`؛ تحقق JSON عميق؛ رفض جذور symlink والجذور الواسعة؛ واختبارات fault حقيقية لعامل فرعي وقراءة ZIP وJSON.
-- **تقرير تغطية أمني موجّه:** 100% من الأسطر وفروع القرار في `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log` و`guard_path` ضمن اختبارات الاستيعاب/حارس المسارات؛ وبيان صريح لأي فرع داخلي غير قابل للوصول.
+- **تقرير تغطية أمني موجّه:** 100% من الأسطر وفروع القرار في `_read_worker_result`, `_check_zip_safety`, `_cli_worker_main`, `sanitize_svg_or_html`, `sanitize_for_log` و`guard_path` ضمن اختبارات الاستيعاب/حارس المسارات؛ وبيان صريح لفجوات المحللات الأخرى.
+- **استكمال P0.6:** حد `max_file_size_bytes` مطبّق أثناء قراءة chunks للنسخ المرحلي (مع حظر نمو المصدر بلا اعتماد على `st_size`)؛ التقاط `ValueError` لتحويل integer JSON الضخم و`RecursionError`؛ واختبارات أمنية مع `ResourceWarning` كخطأ.
+- **Runner المصفوفة اليدوية:** `scripts/run_ingestion_matrix.py` يشغّل عينات محلية من العامل الفعلي ويطبع MIME/الحالة/الزمن/التحذيرات/pass؛ عينات `.local/file-ingestion-samples/` مستثناة من Git. لا توجد نتائج ملفات واقعية بعد.
 - **تعقيم SVG/HTML:** تطبيع الشرطة العكسية قبل فحص URI، حصر الروابط الخارجية في `a[href]`، بادئة `id` لمنع DOM clobbering، حفظ أسماء SVG القياسية، وموازنة الوسوم المفتوحة.
 - **المهمة 16 (`src/core/playbook.py` + `docs/operating-playbook-18.md` + `CHANGELOG.md`):**
   - تجسيد القاعدة الذهبية **«بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»** برمجياً (`evaluate_golden_rule_stage`).

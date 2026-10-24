@@ -26,6 +26,9 @@ audit-report.json
 audit-core.json
 audit-browser.json
 
+# ---- عينات ملفات الاستيعاب الواقعية (تُبقى محلياً ولا تُرفع) ----
+.local/file-ingestion-samples/
+
 # ---- أدوات واختبارات ----
 .pytest_cache/
 .ruff_cache/
