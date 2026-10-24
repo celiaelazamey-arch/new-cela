@@ -116,7 +116,149 @@ pip-audit -r requirements.txt -r requirements-browser.txt
 
 ---
 
-## 5. ما لا يُرفع أبداً
+## 5. تنبيهات CodeQL على `main` — ✅ مُعالَجة (2026-10-24)
+
+> **السياق:** بعد دمج PR #7، رصد CodeQL 4 تنبيهات على `main`. واجهة API
+> للجلسة تُرجع `403` عند قراءة التنبيهات، لكن **المستخدم زوّدها يدوياً** من
+> واجهة GitHub ⇒ صارت قابلة للتنفيذ. عولجت على الفرع `arena/f26ae208-new-cela`.
+
+| # | الخطورة | الموضع | النوع | الحل |
+|---|---|---|---|---|
+| 1 | High | `src/core/memory.py:472` | Uncontrolled data in path expression | حاجز مركزي عند الإنشاء |
+| 2 | High | `src/core/memory.py:476` | Uncontrolled data in path expression | نفس الحاجز |
+| 3 | High | `src/core/telemetry.py:232` | Uncontrolled data in path expression | نفس الحاجز + `guard_run_id` |
+| 4 | Medium | `src/core/memory.py:508` | Log Injection | `sanitize_for_log` |
+
+### سلسلة التدفق (Taint)
+
+```
+st.text_input (dashboard/app.py:247-248)   ← مصدر غير موثوق
+   ↓
+data.load_runs / data.open_memory
+   ↓
+RunArchive(path) · MemoryStore(path)
+   ↓
+.exists() · .read_text() · .glob() · logger.info(...)   ← المصارف
+```
+
+### الحل المعماري: `src/core/path_guard.py`
+
+بدل ترقيع كل مصرف، **تُطهَّر المسارات عند نقطة الدخول** (constructor) —
+وهو نفس النمط الذي نجح في `cognitive/store.py::_validate_run_id` (CodeQL لم
+يرصد تنبيهاً عليه رغم بناء مسار من معرّف). طبقات الدفاع:
+
+1. رفض `..` (traversal) · `\x00` (NUL) · الطول المفرط (>4096) · الفراغ.
+2. رفض المسارات المطلقة نحو مناطق حساسة (`/etc`, `/proc`, `/sys`, `/dev`...).
+3. `must_stay_under_root` اختياري لحصر المسار داخل جذور مسموحة.
+4. `guard_run_id` يسمح فقط بـ `[A-Za-z0-9][A-Za-z0-9._-]*` (≤128).
+5. `sanitize_for_log` يستبدل الأسطار الجديدة ومحارف التحكّم ⇒ **يمنع CWE-117**.
+
+**تدهور رشيق:** `dashboard/data.py` يتعامل مع `UnsafePath` برفق — يرجّع
+قائمة فارغة/مخزن ذاكرة بدل إسقاط اللوحة باستثناء.
+
+### ✅ التحقق (434 اختباراً)
+
+`tests/test_path_guard_security.py` — **31 اختباراً هجومياً** يغطّي:
+traversal، مسارات النظام، NUL، طول مفرط، حقن `run_id`، وحقن السجل.
+كل تنبيه له اختبار «خبيث ⇒ مرفوض» + «سليم ⇒ مقبول».
+
+> ⚠️ **حد مسجّل:** لا يمكن للجلسة تأكيد اختفاء التنبيهات من واجهة GitHub لأن
+> `code-scanning/alerts` لا يزال **403**. الإثبات هنا هو: كود مُصلَّح +
+> اختبارات هجومية ناجحة + CI. التأكيد النهائي من واجهة المالك.
+
+### 🔁 درس `Generate←Run←Test←Review` — تنبيهان جديدان بعد أول إصلاح
+
+بعد فتح PR #8، أبلغ **CodeQL (GitHub Advanced Security)** عن **تنبيهين جديدين في كود الإصلاح نفسه** — رُصدا عبر `check-runs/.../annotations` (المتاح رغم 403 على API التنبيهات):
+
+| الموضع | الرسالة | السبب الجذري |
+|---|---|---|
+| `path_guard.py:97` (High) | "This path depends on a user-provided value" | `.resolve()` استقبل القيمة الخام؛ فحوصات `if ".." in parts` **لا يعترف بها CodeQL كـ sanitizer** |
+| `memory.py:517` (Medium) | "This log entry depends on a user-provided value" | `sanitize_for_log(self.path)` — تطهير داخل دالة لا يقطع الـ taint عبر الاستيراد |
+
+**الدرس:** نقلنا الـ sink من مكانه بدل ما نقطع تدفّق البيانات. الحل النهائي طابق **النمط المُثبَت** في
+`cognitive/store.py::_RUN_ID.fullmatch` (الذي لم يُبلَّغ عنه أصلاً):
+
+1. **Allowlist regex + `fullmatch`** على المتغير، ثم استخدام **نفس المتغير** بعد الـ guard
+   (لا `.group(0)` الذي قد لا يُعرَّف كـ taint-free). `_SAFE_PATH = [\w .\-/\\]+` — يسمح
+   بالعربية (`\w` يونيكود) ويرفض `; & \` | $ ? *` والأسطار الجديدة ومحارف التحكّم.
+2. **نفس الـ barrier محلياً قبل كل `logger`** يستقبل قيمة مشتقة من المستخدم — القيمة تُسجَّل
+   فقط إذا طابقت allowlist، وإلا تُحجب؛ أو يُسجَّل `type(exc).__name__` بدل رسالة الاستثناء.
+3. `sanitize_for_log` صار يبني الناتج من `isprintable()` فقط (CWE-117 فعلياً).
+
+✅ التحقق بعد التصحيح: **446 اختباراً ناجحاً** (منها 43 هجومياً)، ruff و6 حواجز نظيفة،
+واختبارات صريحة للحقن (`; rm`, `&&`, backtick, `$(...)`, pipe, newline) وللمسارات العربية.
+
+> 📌 للأجيال القادمة: **فحص `in`/`startswith` لا يُقنع CodeQL؛ الـ `re.fullmatch` كـ guard
+> على نفس المتغير هو الـ barrier المعترف به.** راجع دائماً `check-runs/.../annotations`
+> بعد كل push — فحوصات الـ PR تكشف تنبيهات جديدة حتى حين يعجز API عن قراءتها (403).
+
+#### ✅ الحل النهائي (بعد الرجوع إلى مصدر CodeQL نفسه — لا حدس)
+
+بعد 3 دورات تخمين فاشلة، **اتصُلّح بالرجوع إلى استعلامات CodeQL الرسمية** على
+`github/codeql` (المسارات مُوثّقة في `src/core/path_guard.py`). الحقائق الحاسمة:
+
+1. **`re.fullmatch` ليس sanitizer** — ملف `PathInjectionCustomizations.qll` ينصّ
+   صراحةً: «لا نُعرّض صنف `Sanitizer`؛ استخدم `Path::PathNormalization` و
+   `Path::SafeAccessCheck`». كل محاولات الـ allowlist-regex كانت بلا أساس.
+2. **py/path-injection يستخدم flow-states**: المسار `NotNormalized` → بعد
+   `os.path.abspath/normpath/realpath` يصبح `NormalizedUnchecked` → **`str.startswith`
+   allowlist بـ branch=true على نفس المتغيّر المطبَّع** هو الـ barrier الوحيد الذي
+   يُرضي الحالة (من `Stdlib.qll`: `OsPathAbspathCall` + `StartswithCall`).
+3. **py/log-injection** يعترف بـ **`.replace("\n", …)` المباشر** على القيمة
+   (`ReplaceLineBreaksSanitizer`) — لا `re.sub` ولا دالة خارجية.
+4. **py/polynomial-redos**: أي regex يُنفَّذ على قيمة مستخدم = sink. الـ lookahead
+   `(?!.*\.\.)` مع `+` ولّد تنبيهَي ReDoS. الحل: **صفر regex على المدخل الملوّث** —
+   فحوصات `str` فقط (`isalnum` / `split` / `replace`).
+
+**التنفيذ:** `guard_path` = فحص طول/محارف (بلا regex) → `os.path.abspath`
+(PathNormalization) → حلقة `startswith` على جذور مسموحة (SafeAccessCheck) → يُعاد
+المسار المُطبَّع. `allowed_roots` الافتراضية = مجلد المشروع + مجلد النظام المؤقت
+(لدعم `tmp_path` في الاختبارات). `.resolve()` على المدخل الملوّث **أُزيل نهائياً**.
+السجل: `.replace("\n", "⏎")` مباشرة قبل `logger`.
+
+✅ التحقق النهائي: **449 pytest** (46 هجومياً) · ruff وكل الحواجز نظيفة.
+
+<details>
+<summary>سجل المحاولات الفاشلة (للشفافية ومنع تكرارها)</summary>
+
+#### دورة ثانية: حتى `fullmatch` على allowlist واسعة لم يكفِ
+
+بعد أول تصحيح للتنبيهين، أعاد CodeQL إصدارهما على سطرين جديدين (`path_guard.py:118`
+و`memory.py:528`). **السبب الحقيقي** بعد المقارنة مع `store.py`:
+
+| | `store.py` (ناجح) | تصحيحنا الأول (فشل) |
+|---|---|---|
+| النمط | `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` | `[\w .\-/\\]+` |
+| فواصل المسارات | ❌ ممنوعة تماماً | ✅ مسموحة |
+| منع `..` | ضمني (النمط لا يسمح بجزء كامل `..` كمسار) | `if ".." in parts` منفصل |
+| `.resolve()` على المدخل | لا يوجد | موجود ⇒ sink إضافي |
+
+**التصحيح النهائي (قاطع، لا تخمين):**
+1. منع `..` **مدمج في regex نفسه** عبر lookahead `(?!.*\.\.)`.
+2. **إزالة `Path.resolve()` عن المدخل الملوّث** — استُبدل بـ `os.path.normpath`
+   (عملية نصية لا تلمس القرص = لا sink). الـ `resolve` بقي فقط على جذور يحدّدها
+   المطوّر في فرع `must_stay_under_root`.
+3. القيمة المُعادة/المسجَّلة تُبنى من `.group(0)` (ناتج match) لا من النص الخام.
+4. في السجل: `os.path.basename` + allowlist **ضيّقة** `[\w.\-]+\Z` (بلا فواصل/مسافات)،
+   والقيمة من `.group(0)`؛ أي اسم خبيث ⇒ يُحجب كلياً.
+
+✅ التحقق: **446 pytest** (44 هجومياً) · ruff و6 حواجز نظيفة.
+🧠 **الدرس الأهم:** «الحل اللي بيعدّي اختباراتك مش بالضرورة بيقنع محلّل ثابت».
+CodeQL تتبّع تدفّق البيانات، لا نية المطوّر. لازم يُعاد تشغيل الـ check ويُقرأ
+`annotations` بعد كل push حتى يثبت اختفاء التنبيه فعلاً — لا يُكتفى بالنيّة الحسنة.
+
+#### دورة ثالثة: `fullmatch` على allowlist ضيّقة + إزالة `.resolve()` — لم يكفِ
+
+حتى بعد تضييق الـ regex وإزالة `Path.resolve()`، عادت التنبيهات **وزادت إلى 4**
+(3 High + 1 Medium): ظهر **تنبيها ReDoS** جديدان (`py/polynomial-redos`) من تنفيذ
+regex على قيمة مستخدم، وبقي Path/Log Injection. عندها فقط توقّفنا عن التخمين
+ورجعنا لمصدر الاستعلامات نفسها — فكان الحل أعلاه.
+
+</details>
+
+---
+
+## 6. ما لا يُرفع أبداً
 
 `.env`، مفاتيح API، `.agent_memory/`، `.agent_runs/`، `.agent_knowledge/`،
 ومخرجات التشغيل المؤقتة — كلها مستبعدة عبر `.gitignore`. راجع

@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from src.core.memory import MemoryHit, MemoryStore
+from src.core.path_guard import UnsafePath
 from src.core.schemas import MemoryKind, RunReport, RunStatus, StepStatus
 from src.core.telemetry import DEFAULT_RUNS_DIR, RunArchive
 
@@ -59,15 +60,20 @@ STALE_AFTER_SECONDS = 600
 MAX_ANSWER_CHARS = 4000
 
 
-def _archive(runs_dir: str | Path | None) -> RunArchive:
-    return RunArchive(path=runs_dir or DEFAULT_RUNS_DIR)
+def _archive(runs_dir: str | Path | None) -> RunArchive | None:
+    """يبني الأرشيف بأمان — None إذا كان المسار مرفوضاً من حاجز الأمان."""
+    try:
+        return RunArchive(path=runs_dir or DEFAULT_RUNS_DIR)
+    except UnsafePath:
+        return None
 
 
 # ================= قراءة التشغيلات =================
 
 def load_runs(runs_dir: str | Path | None, limit: int = 30) -> list[RunReport]:
-    """أحدث التشغيلات أولاً — قائمة فارغة إذا لم يكن هناك سجل بعد."""
-    return _archive(runs_dir).list_recent(limit=limit)
+    """أحدث التشغيلات أولاً — قائمة فارغة إذا لم يكن هناك سجل أو كان المسار مرفوضاً."""
+    archive = _archive(runs_dir)
+    return archive.list_recent(limit=limit) if archive is not None else []
 
 
 def latest_run(runs_dir: str | Path | None) -> RunReport | None:
@@ -186,12 +192,14 @@ def memory_hit_rows(report: RunReport) -> list[dict[str, object]]:
 # ================= الذاكرة =================
 
 def open_memory(memory_path: str | Path | None, max_entries: int | None = None) -> MemoryStore:
-    """يفتح مخزن الذاكرة للقراءة — مسار فارغ/غير موجود ⇒ مخزن فارغ بلا أخطاء."""
-    store = MemoryStore(
-        path=memory_path or ":memory:",
-        max_entries=max_entries or 500,
-    )
-    return store
+    """يفتح مخزن الذاكرة للقراءة — مسار مرفوض ⇒ مخزن فارغ بلا أخطاء."""
+    try:
+        return MemoryStore(
+            path=memory_path or ":memory:",
+            max_entries=max_entries or 500,
+        )
+    except UnsafePath:
+        return MemoryStore(path=":memory:", max_entries=max_entries or 500)
 
 
 def memory_overview(memory_path: str | Path | None) -> dict[str, object]:

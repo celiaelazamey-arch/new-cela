@@ -51,6 +51,11 @@ CONTRACTS: dict[str, dict[str, str]] = {
     "src/execution/sandbox.py": {
         "SandboxExecutor": "class",
     },
+    "src/core/path_guard.py": {
+        "guard_path": "func",
+        "guard_run_id": "func",
+        "sanitize_for_log": "func",
+    },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
     "scripts/pii_scan.py": {"main": "func"},

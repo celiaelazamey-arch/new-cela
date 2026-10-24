@@ -31,6 +31,7 @@ PROTECTED = {
     "scripts/secret_scan.py": "فاحص الأسرار",
     "scripts/pii_scan.py": "فاحص البيانات الشخصية",
     "scripts/error_guard.py": "حارس معالجة الأخطاء",
+    "src/core/path_guard.py": "حاجز المسارات (CodeQL #1-#4)",
 }
 
 

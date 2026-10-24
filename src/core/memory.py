@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from src.core.path_guard import UnsafePath, guard_path
 from src.core.schemas import MemoryEntry, MemoryKind, StepRecord, StepStatus
 
 logger = logging.getLogger("new-cela.memory")
@@ -209,7 +210,16 @@ class MemoryStore:
         if path is None or str(path) in {"", ":memory:"}:
             self.path = None
         else:
-            self.path = Path(path)
+            # ✅ حاجز الأمان: المسار قد يأتي من st.text_input (مصدر غير موثوق).
+            # يُطهَّر عند نقطة الدخول قبل أي exists/read_text/write — يعالج
+            # تنبيهات CodeQL #1 و#2 على this file.
+            try:
+                self.path = guard_path(path)
+            except UnsafePath as exc:
+                # نسجّل نوع الاستثناء فقط (رسالته ثابتة) — لا تمرّ أي قيمة من المستخدم
+                # إلى السجل، فيُقطع تدفّق البيانات تماماً قبل logger (CWE-117).
+                logger.warning("مسار ذاكرة مرفوض (%s).", type(exc).__name__)
+                raise
 
         self.max_entries = max(1, int(max_entries))
         self._entries: list[MemoryEntry] = []
@@ -505,7 +515,12 @@ class MemoryStore:
         self._entries = entries
         self._ids = {item.id for item in entries}
         self._needs_compaction = bool(self._skipped_lines or duplicates or trimmed)
-        logger.info("تم تحميل %d ذكرى من %s.", len(entries), self.path)
+        # ✅ Log-Injection sanitizer المعترف به في CodeQL (LogInjectionCustomizations):
+        # `.replace("\n", …)` مباشرة على القيمة المسجَّلة = ReplaceLineBreaksSanitizer.
+        # basename يقلّل السطح، والـ replace يمنع تزييف أسطار السجل (CWE-117).
+        # لا regex هنا ⇒ لا py/polynomial-redos.
+        path_label = os.path.basename(str(self.path)).replace("\r\n", "⏎").replace("\n", "⏎").replace("\r", "⏎")
+        logger.info("تم تحميل %d ذكرى من %s.", len(entries), path_label)
 
     def __repr__(self) -> str:  # pragma: no cover - تمثيل تشخيصي
         return f"MemoryStore(path={self.path!r}, entries={len(self)})"
