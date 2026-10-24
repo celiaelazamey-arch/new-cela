@@ -67,6 +67,7 @@ class AgentEngine:
         cognitive_store: EvidenceStore | None = None,
         checkpoint_store: CheckpointStore | None = None,
         self_model: Any = None,
+        calibration: Any = None,
     ) -> None:
         self.router = router
         self.registry = registry
@@ -88,6 +89,8 @@ class AgentEngine:
         self.cognitive_store = cognitive_store
         self.checkpoint_store = checkpoint_store
         self.self_model = self_model
+        # سجل المعايرة (اختياري): ثقة مُعلنة ← نتيجة فعلية، وبوابة تصعيد تحت العتبة.
+        self.calibration = calibration
 
     # ================= الواجهة الرئيسية =================
     async def run(self, request: TaskRequest) -> TaskResult:
@@ -420,7 +423,33 @@ class AgentEngine:
         parts = [confidence.render()]
         if attention_state is not None:
             parts.append(attention_state.attention.describe())
+        parts.extend(self._calibrate(request, confidence.score, verified))
         return confidence.score, "\n".join(parts)
+
+    def _calibrate(self, request: TaskRequest, score: float, verified: bool) -> list[str]:
+        """
+        يمرّر الثقة عبر بوابة المعايرة ويسجّل النتيجة — بلا إسقاط المهمة عند أي خطأ.
+
+        «الصحة» المسجّلة هنا مصدرها `verifier` (شروط القبول الصريحة)، لا رأي
+        النموذج؛ والحكم البشري اللاحق يُضاف عبر `CalibrationLedger.record(source="human")`.
+        """
+        if self.calibration is None:
+            return []
+        try:
+            kind = getattr(request, "task_kind", "") or "engine"
+            verdict = self.calibration.gate(score, task_kind=kind)
+            self.calibration.record(
+                predicted=score,
+                correct=verified,
+                task_kind=kind,
+                source="verifier",
+                run_id=request.run_id or "",
+            )
+        except Exception as exc:  # noqa: BLE001 — المعايرة لا تُسقط النتيجة
+            logger.warning("تعذّرت المعايرة (%s).", type(exc).__name__)
+            return []
+        line = f"بوابة المعايرة: {verdict.decision} — {verdict.reason}"
+        return [line]
 
     # ================= الفحص المسبق =================
     def _knowledge_context(self, task: str) -> str:

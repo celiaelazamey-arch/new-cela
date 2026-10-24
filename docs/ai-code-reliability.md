@@ -179,7 +179,7 @@ Generate  → كُتب dependency_guard.py + أُعلنت Pillow + حُذف ال
 Run       → شُغِّل الفاحص بمفسّرين مختلفين
 Test      → 370 pytest + ruff + compileall + secret_scan + pii_scan
 Review    → اكتُشف أن الفاحص يكذب ⇒ صُحِّح ⇒ أُعيد التشغيل
-Commit    → دفع إلى origin/arena/1756fb0e-new-cela + انتظار CI
+Commit    → دفع إلى origin/<برانش الجلسة> + انتظار CI
 ```
 
 > الدرس: **Review ليست خطوة شكلية.** هنا أنقذتنا من توثيق 10 اتهامات باطلة

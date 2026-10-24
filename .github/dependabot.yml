@@ -1,0 +1,29 @@
+# تحديث آلي للتبعيات وGitHub Actions (البند 6 و13 — الأولوية رقم 1، مجاني 100%).
+# مضبوط بجدول أسبوعي وسقف 5 طلبات مفتوحة لمنع ضجيج البناء واستهلاك الدقائق (البند 14).
+version: 2
+updates:
+  # 1) حزم Python الأساسية والاختيارية
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Africa/Cairo"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+
+  # 2) إصدارات GitHub Actions (يحافظ على تثبيت commit SHA عند الترقية)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:30"
+      timezone: "Africa/Cairo"
+    open-pull-requests-limit: 3
+    labels:
+      - "ci"
+      - "supply-chain"

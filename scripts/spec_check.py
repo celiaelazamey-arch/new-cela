@@ -43,6 +43,29 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "PolicyEngine": "class",
         "PolicyDenied": "class",
         "DEFAULT_SCOPES": "const",
+        "AutonomyLevel": "class",
+        "KillSwitch": "class",
+        "IRREVERSIBLE_SCOPES": "const",
+    },
+    # المهمة 11 — الوعي الوظيفي: تقادم نموذج الذات، معايرة، مقاييس، محكّم.
+    "src/awareness/self_model.py": {
+        "Capability": "class",
+        "SelfModel": "class",
+        "DriftFinding": "class",
+        "DEFAULT_TTL_DAYS": "const",
+    },
+    "src/awareness/calibration.py": {
+        "CalibrationLedger": "class",
+        "gate": "func",
+        "DEFAULT_THRESHOLD": "const",
+        "REFUSE_THRESHOLD": "const",
+    },
+    "src/awareness/metrics.py": {
+        "compute_metrics": "func",
+        "promotion_check": "func",
+    },
+    "src/core/arbiter.py": {
+        "Arbiter": "class",
     },
     "src/core/quota.py": {
         "QuotaGuard": "class",
@@ -55,6 +78,23 @@ CONTRACTS: dict[str, dict[str, str]] = {
         "guard_path": "func",
         "guard_run_id": "func",
         "sanitize_for_log": "func",
+    },
+    "src/core/prompt_guard.py": {
+        "PromptRiskLevel": "class",
+        "PromptGuardResult": "class",
+        "PromptInjectionDetected": "class",
+        "inspect_prompt_injection": "func",
+        "guard_tool_input": "func",
+        "strip_invisible_chars": "func",
+    },
+    "src/core/pricing.py": {
+        "PlanTier": "class",
+        "PlanSpec": "class",
+        "PLAN_CATALOG": "const",
+        "build_plan_guard": "func",
+        "evaluate_usage_alert": "func",
+        "calculate_unit_economics": "func",
+        "render_pricing_table": "func",
     },
     "scripts/dependency_guard.py": {"main": "func"},
     "scripts/secret_scan.py": {"main": "func"},
@@ -74,6 +114,9 @@ REQUIRED_DOCS = (
     "docs/agent-failure-patterns.md",
     "docs/ci-cd-free-tier.md",
     "docs/compliance-framework.md",
+    "docs/functional-awareness-qa.md",
+    "docs/monetization-plan.md",
+    "docs/devsecops-free-tools.md",
 )
 
 # بنود المواصفة الأصلية (من الطلبات الأولى) — تُذكَّر في التقرير لمنع النسيان.

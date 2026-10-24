@@ -1,0 +1,18 @@
+# مراجعون إلزاميون للمسارات الحساسة والخطوط الحمراء (البند 10 و CLAUDE.md §5).
+# أي تعديل يمس هذه الملفات يتطلب مراجعة مالك المستودع قبل الدمج.
+
+/CLAUDE.md                          @celiaelazamey-arch
+/SECURITY.md                        @celiaelazamey-arch
+/.github/                           @celiaelazamey-arch
+/src/core/policy.py                 @celiaelazamey-arch
+/src/core/quota.py                  @celiaelazamey-arch
+/src/core/path_guard.py             @celiaelazamey-arch
+/src/core/prompt_guard.py           @celiaelazamey-arch
+/src/execution/sandbox.py           @celiaelazamey-arch
+/scripts/policy_guard.py            @celiaelazamey-arch
+/scripts/error_guard.py             @celiaelazamey-arch
+/scripts/secret_scan.py             @celiaelazamey-arch
+/scripts/pii_scan.py                @celiaelazamey-arch
+/scripts/dependency_guard.py        @celiaelazamey-arch
+/scripts/action_pin_guard.py        @celiaelazamey-arch
+/scripts/spec_check.py              @celiaelazamey-arch
