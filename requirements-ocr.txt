@@ -5,7 +5,7 @@
 #      macOS:         brew install tesseract tesseract-lang
 #
 # 2) قراءة طبقة النص في PDF (اختياري، خفيف جداً):
-pypdf>=4,<7
+pypdf>=6.21.1,<7
 
 # معالجة الصور قبل OCR (تُستخدم مباشرة في src/ocr/engine.py::prepare_image).
 # كانت تُثبَّت عرضياً عبر streamlit/browser-use فقط — أُعلنت صراحةً لمنع انقطاعها
