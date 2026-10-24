@@ -159,6 +159,29 @@ class IngestionResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> IngestionResult:
+        if not isinstance(data, dict):
+            raise TypeError("worker_result_schema_invalid: expected object")
+        required = {"id", "name", "mime", "size", "status", "parser", "text"}
+        if not required.issubset(data):
+            raise ValueError("worker_result_schema_invalid: missing required fields")
+        if data.get("status") not in {status.value for status in IngestionStatus}:
+            raise ValueError("worker_result_schema_invalid: unknown status")
+        if type(data.get("size")) is not int or data["size"] < 0:
+            raise ValueError("worker_result_schema_invalid: invalid size")
+        if not all(isinstance(data.get(key), str) for key in ("id", "name", "mime", "parser", "text")):
+            raise ValueError("worker_result_schema_invalid: invalid string field")
+        if data.get("language") is not None and not isinstance(data.get("language"), str):
+            raise ValueError("worker_result_schema_invalid: invalid language")
+        if data.get("pages") is not None and (type(data.get("pages")) is not int or data["pages"] < 0):
+            raise ValueError("worker_result_schema_invalid: invalid pages")
+        if not isinstance(data.get("tables", []), list) or not isinstance(data.get("images", []), list):
+            raise TypeError("worker_result_schema_invalid: invalid extraction arrays")
+        if not isinstance(data.get("metadata", {"author": None, "created": None}), dict):
+            raise TypeError("worker_result_schema_invalid: invalid metadata")
+        if not isinstance(data.get("warnings", []), list) or not all(
+            isinstance(warning, str) for warning in data.get("warnings", [])
+        ):
+            raise ValueError("worker_result_schema_invalid: invalid warnings")
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -824,7 +847,7 @@ def _normalize_uri_for_check(raw_value: str) -> str:
     """فك كيانات HTML (`&#106;avascript:`) وإزالة محارف التحكم والمسافات قبل فحص البروتوكول."""
     unescaped = html.unescape(raw_value)
     cleaned = "".join(ch for ch in unescaped if ord(ch) > 0x20 and ch not in ("\x7f",))
-    return cleaned.lower()
+    return cleaned.replace("\\", "/").lower()
 
 
 def _is_safe_uri(raw_value: str) -> bool:
@@ -898,6 +921,7 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
         self.output: list[str] = []
         self.warnings: list[str] = []
         self._skip_depth = 0
+        self._open_tags: list[str] = []
 
     def _warn_once(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -938,11 +962,17 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
             if name_lower not in _ALLOWED_SVG_HTML_ATTRS:
                 self._warn_once(f"xss_vector_sanitized: تم حذف السمة غير المسموحة '{name_lower}'")
                 continue
-            if name_lower in _URL_ATTRS and not _is_safe_uri(val_str):
-                self._warn_once(
-                    f"xss_vector_sanitized: تم حظر رابط خطير في '{name_lower}' (javascript/data/entity bypass)"
-                )
-                continue
+            if name_lower in _URL_ATTRS:
+                uri = _normalize_uri_for_check(val_str)
+                if name_lower == "href" and tag_lower == "a":
+                    allowed = _is_safe_uri(val_str) and (uri.startswith(("#", "http://", "https://", "mailto:")))
+                else:
+                    allowed = uri.startswith("#")
+                if not allowed:
+                    self._warn_once(f"xss_vector_sanitized: blocked URI in '{name_lower}'")
+                    continue
+            if name_lower == "id":
+                val_str = "cela-" + "".join(ch for ch in val_str if ch.isalnum() or ch in "_-:. ")[:128]
             if name_lower == "style":
                 clean_style, style_violation = _sanitize_css_style(val_str)
                 if style_violation:
@@ -954,13 +984,19 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
                 has_rel = True
                 val_str = "noopener noreferrer"
             escaped_val = html.escape(html.unescape(val_str), quote=True)
-            safe_attrs.append(f'{name_lower}="{escaped_val}"')
+            canonical_attr = {"viewbox": "viewBox", "preserveaspectratio": "preserveAspectRatio",
+                              "gradientunits": "gradientUnits", "gradienttransform": "gradientTransform",
+                              "text-anchor": "text-anchor", "dominant-baseline": "dominant-baseline"}.get(name_lower, name_lower)
+            safe_attrs.append(f'{canonical_attr}="{escaped_val}"')
 
         if tag_lower == "a" and not has_rel:
             safe_attrs.append('rel="noopener noreferrer"')
 
         attr_suffix = (" " + " ".join(safe_attrs)) if safe_attrs else ""
-        self.output.append(f"<{tag_lower}{attr_suffix}>")
+        canonical_tag = {"lineargradient": "linearGradient", "radialgradient": "radialGradient", "clippath": "clipPath"}.get(tag_lower, tag_lower)
+        self.output.append(f"<{canonical_tag}{attr_suffix}>")
+        if tag_lower not in {"br", "hr"}:
+            self._open_tags.append(tag_lower)
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
@@ -968,8 +1004,13 @@ class _AllowlistSvgHtmlSanitizer(HTMLParser):
             if tag_lower in _DROP_SUBTREE_TAGS:
                 self._skip_depth -= 1
             return
-        if tag_lower in _ALLOWED_SVG_HTML_TAGS:
-            self.output.append(f"</{tag_lower}>")
+        if tag_lower in _ALLOWED_SVG_HTML_TAGS and tag_lower not in {"br", "hr"} and tag_lower in self._open_tags:
+            while self._open_tags:
+                opened = self._open_tags.pop()
+                canonical = {"lineargradient": "linearGradient", "radialgradient": "radialGradient", "clippath": "clipPath"}.get(opened, opened)
+                self.output.append(f"</{canonical}>")
+                if opened == tag_lower:
+                    break
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth == 0:
@@ -1030,6 +1071,10 @@ def sanitize_svg_or_html(raw_text: str) -> tuple[str, list[str]]:
         sanitizer._warn_once(w)
     sanitizer.feed(stripped_text)
     sanitizer.close()
+    while sanitizer._open_tags:
+        opened = sanitizer._open_tags.pop()
+        canonical = {"lineargradient": "linearGradient", "radialgradient": "radialGradient", "clippath": "clipPath"}.get(opened, opened)
+        sanitizer.output.append(f"</{canonical}>")
     return ("".join(sanitizer.output).strip(), sanitizer.warnings)
 
 
@@ -1110,7 +1155,7 @@ def _safe_read_zip_entry(
         if first_chunk:
             first_chunk = False
             if forbid_nested_archive and data.startswith(
-                (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07", b"BZh")
+                (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07", b"BZh", b"\xfd7zXZ", b"(\xb5/\xfd")
             ):
                 raise ValueError(
                     f"zip_bomb_nested_archive: بصمة أرشيف متداخل محظور داخل '{info.filename}'"
@@ -1138,20 +1183,20 @@ def _safe_read_zip_entry(
         if decompressor is None:
             _consume_decompressed(comp_chunk)
         else:
-            max_step = max(1024, (limits.max_uncompressed_bytes - cumulative_bytes[0]) + 64)
+            max_step = max(1, min(CHUNK_SIZE_BYTES, info.file_size - entry_read + 1))
             out = decompressor.decompress(comp_chunk, max_step)
             _consume_decompressed(out)
             while decompressor.unconsumed_tail:
-                max_step = max(1024, (limits.max_uncompressed_bytes - cumulative_bytes[0]) + 64)
+                max_step = max(1, min(CHUNK_SIZE_BYTES, info.file_size - entry_read + 1))
                 out = decompressor.decompress(decompressor.unconsumed_tail, max_step)
                 _consume_decompressed(out)
 
-    if decompressor is not None:
-        tail = decompressor.flush()
-        _consume_decompressed(tail)
-
+    if remaining_comp != 0 or entry_read != info.file_size:
+        raise zipfile.BadZipFile("archive_entry_size_mismatch")
+    if decompressor is not None and not decompressor.eof:
+        raise zipfile.BadZipFile("archive_entry_deflate_stream_incomplete")
     if (crc & 0xFFFFFFFF) != (info.CRC & 0xFFFFFFFF):
-        raise zipfile.BadZipFile(f"Bad CRC-32 for file '{info.filename}'")
+        raise zipfile.BadZipFile("archive_entry_crc_mismatch")
 
     return b"".join(chunks)
 
@@ -1183,9 +1228,16 @@ def _check_zip_safety(
     total_declared = 0
     cumulative_stream = [0]
     archive_warnings: list[str] = []
+    seen_names: set[str] = set()
 
     for info in infos:
         normalized_name = info.filename.replace("\\", "/")
+        normalized_key = normalized_name.casefold()
+        if normalized_key in seen_names:
+            raise ValueError("archive_duplicate_entry: duplicate normalized entry name")
+        seen_names.add(normalized_key)
+        if info.flag_bits & 0x1:
+            raise ValueError("zip_encrypted_entry: encrypted archive entries are not accepted")
         parts = normalized_name.split("/")
         if (
             ".." in parts
@@ -1566,6 +1618,10 @@ def _apply_worker_rlimits(max_memory_mb: int, timeout_seconds: float) -> None:
         mem_bytes = max(1024, max_memory_mb) * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+        for limit_name, cap in (("RLIMIT_NPROC", 32), ("RLIMIT_NOFILE", 64), ("RLIMIT_CORE", 0)):
+            resource_id = getattr(resource, limit_name, None)
+            if resource_id is not None:
+                resource.setrlimit(resource_id, (cap, cap))
     except Exception as exc:  # noqa: BLE001
         logger.debug("تعذّر تطبيق بعض حدود rlimit في هذه البيئة: %s", exc)
 
@@ -1587,14 +1643,7 @@ def ingest_file_isolated(
     limits: IngestionLimits | None = None,
     timeout_seconds: float | None = None,
 ) -> IngestionResult:
-    """
-    تشغيل استيعاب الملف داخل عملية فرعية معزولة (`Hardened Subprocess Sandbox` — P0):
-      1. يعمل بلا صدفة (`shell=False`)، وفي مجلد عمل مؤقت فارغ ومعزول (`tempfile.TemporaryDirectory`).
-      2. يعمل في مجموعة عمليات مستقلة (`start_new_session=True`)؛ وعند انتهاء المهلة يُقتل
-         كامل شجرة العمليات عبر `os.killpg(proc.pid, signal.SIGKILL)`.
-      3. يطبّق العامل حدود الذاكرة والـ CPU (`resource.setrlimit`) ويعطّل الشبكة (`_disable_worker_network`).
-      4. قناة إرجاع النتيجة: **JSON فقط (صفر pickle)** وبسقف حجم `MAX_WORKER_STDOUT_BYTES`.
-    """
+    """Run ingestion in an isolated worker; worker input and JSON output are staged locally."""
     active_limits = limits or IngestionLimits()
     raw_path = Path(file_path)
     root = Path(allowed_root).resolve() if allowed_root is not None else raw_path.resolve().parent
@@ -1602,98 +1651,82 @@ def ingest_file_isolated(
     clean_name = sanitize_filename(safe_path.name)
     file_id, size_bytes, head = _stream_sha256_and_head(safe_path)
     mime, warnings = detect_magic_mime(head, clean_name)
-
-    effective_timeout = (
-        timeout_seconds if timeout_seconds is not None else active_limits.parser_timeout_seconds
-    )
+    effective_timeout = timeout_seconds if timeout_seconds is not None else active_limits.parser_timeout_seconds
     repo_root = str(Path(__file__).resolve().parent.parent.parent)
     worker_limits = asdict(active_limits)
     worker_limits["isolate_in_subprocess"] = False
 
-    with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as isolated_cwd:
-        cmd_clean = [
-            sys.executable,
-            "-m",
-            "src.ingestion.pipeline",
-            "--worker-file",
-            str(safe_path),
-            "--worker-root",
-            str(root),
-            "--worker-limits",
-            json.dumps(worker_limits),
-        ]
-        proc: subprocess.Popen[str] | None = None
-        try:
-            proc = subprocess.Popen(
-                cmd_clean,
-                cwd=isolated_cwd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                start_new_session=True,
-                env={
-                    "PYTHONPATH": repo_root,
-                    "PATH": "",
-                    "HOME": isolated_cwd,
-                    "TMPDIR": isolated_cwd,
-                    "PYTHONDONTWRITEBYTECODE": "1",
-                    "CELA_INGEST_WORKER": "1",
-                },
-            )
-            stdout_data, _stderr_data = proc.communicate(timeout=effective_timeout)
-            if len(stdout_data) > MAX_WORKER_STDOUT_BYTES:
-                raise ValueError("worker_stdout_exceeded: مخرجات العملية الفرعية تجاوزت السقف المسموح")
-            if proc.returncode == 0 and stdout_data.strip():
-                payload = json.loads(stdout_data.strip().splitlines()[-1])
-                return IngestionResult.from_dict(payload)
-            warnings.append(
-                f"parser_subprocess_failed: انتهت العملية الفرعية برمز ({proc.returncode})"
-            )
-        except subprocess.TimeoutExpired:
-            if proc is not None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError as kill_exc:
-                    logger.debug("تعذّر killpg على العملية الفرعية (%s) — استخدام proc.kill()", kill_exc)
-                    proc.kill()
-                proc.communicate()
-            warnings.append(
-                f"parser_subprocess_timeout: تجاوز المحلّل المهلة الزمنية ({effective_timeout}s) في العملية المعزولة وتم قتل مجموعة العمليات"
-            )
-            return IngestionResult(
-                id=file_id,
-                name=clean_name,
-                mime=mime,
-                size=size_bytes,
-                status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
-                parser="isolated_subprocess_guard",
-                language=None,
-                text="",
-                metadata={"author": None, "created": None, "blocked_reason": "parser_subprocess_timeout"},
-                warnings=warnings,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if proc is not None and proc.poll() is None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError as kill_exc:
-                    logger.debug("تعذّر killpg عند تنظيف العملية الفرعية (%s) — استخدام proc.kill()", kill_exc)
-                    proc.kill()
-            warnings.append(f"parser_subprocess_error: {type(exc).__name__}: {exc}")
+    def blocked(reason: str, detail: str | None = None) -> IngestionResult:
+        if detail:
+            warnings.append(f"{reason}: {detail[:500]}")
+        return IngestionResult(
+            id=file_id, name=clean_name, mime=mime, size=size_bytes,
+            status=IngestionStatus.ZP_OR_EXE_BLOCKED.value,
+            parser="isolated_subprocess_guard", language=None, text="",
+            metadata={"author": None, "created": None, "blocked_reason": reason},
+            warnings=warnings,
+        )
 
-    return IngestionResult(
-        id=file_id,
-        name=clean_name,
-        mime=mime,
-        size=size_bytes,
-        status=IngestionStatus.METADATA_ONLY.value,
-        parser="isolated_subprocess_fallback",
-        language=None,
-        text="",
-        metadata={"author": None, "created": None},
-        warnings=warnings,
-    )
+    with tempfile.TemporaryDirectory(prefix="cela_ingest_sbx_") as isolated_cwd:
+        worker_file = Path(isolated_cwd) / clean_name
+        out_path = Path(isolated_cwd) / "result.json"
+        try:
+            shutil.copyfile(safe_path, worker_file)
+            copied_id, copied_size, _ = _stream_sha256_and_head(worker_file)
+            if copied_id != file_id or copied_size != size_bytes:
+                return blocked("input_changed_during_staging")
+            cmd_clean = [
+                sys.executable, "-m", "src.ingestion.pipeline",
+                "--worker-file", str(worker_file), "--worker-root", isolated_cwd,
+                "--worker-out", str(out_path),
+                "--worker-limits", json.dumps(worker_limits),
+            ]
+            proc: subprocess.Popen[bytes] | None = None
+            try:
+                proc = subprocess.Popen(
+                    cmd_clean, cwd=isolated_cwd, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                    env={"PYTHONPATH": repo_root, "PATH": "", "HOME": isolated_cwd,
+                         "TMPDIR": isolated_cwd, "PYTHONDONTWRITEBYTECODE": "1",
+                         "CELA_INGEST_WORKER": "1"},
+                )
+                try:
+                    proc.wait(timeout=effective_timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except (OSError, AttributeError) as kill_exc:
+                        logger.debug("killpg unavailable during worker timeout: %s", kill_exc)
+                        proc.kill()
+                    proc.wait(timeout=5)
+                    return blocked("parser_subprocess_timeout", f"timeout={effective_timeout}s")
+                if proc.returncode != 0:
+                    return blocked("parser_subprocess_failed", f"exit={proc.returncode}")
+                if not out_path.is_file() or out_path.stat().st_size > MAX_WORKER_STDOUT_BYTES:
+                    return blocked("worker_output_missing_or_too_large")
+                with out_path.open("rb") as result_file:
+                    payload_bytes = result_file.read(MAX_WORKER_STDOUT_BYTES + 1)
+                if len(payload_bytes) > MAX_WORKER_STDOUT_BYTES:
+                    return blocked("worker_output_missing_or_too_large")
+                result = IngestionResult.from_dict(json.loads(payload_bytes))
+                if result.id != file_id:
+                    return blocked("worker_result_identity_mismatch")
+                return result
+            except Exception as exc:  # noqa: BLE001
+                if proc is not None and proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except (OSError, AttributeError) as kill_exc:
+                        logger.debug("killpg unavailable during worker cleanup: %s", kill_exc)
+                        proc.kill()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("worker process did not exit after SIGKILL within five seconds")
+                return blocked("parser_subprocess_error", f"{type(exc).__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            return blocked("parser_subprocess_staging_error", f"{type(exc).__name__}: {exc}")
 
 
 def ingest_file(
@@ -2274,6 +2307,7 @@ def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
     parser.add_argument("--worker-file", required=True)
     parser.add_argument("--worker-root", required=True)
     parser.add_argument("--worker-limits", required=True)
+    parser.add_argument("--worker-out")
     args = parser.parse_args(argv)
 
     limits_dict = json.loads(args.worker_limits)
@@ -2285,7 +2319,15 @@ def _cli_worker_main(argv: list[str], *, apply_os_sandbox: bool = True) -> int:
         _disable_worker_network()
 
     res = ingest_file(args.worker_file, allowed_root=args.worker_root, limits=limits)
-    print(json.dumps(res.to_dict(), ensure_ascii=False))
+    serialized = json.dumps(res.to_dict(), ensure_ascii=False)
+    if args.worker_out:
+        out_path = Path(args.worker_out)
+        if out_path.resolve().parent != Path(args.worker_root).resolve():
+            raise ValueError("worker_output_path_outside_root")
+        with out_path.open("w", encoding="utf-8") as output:
+            output.write(serialized)
+    else:
+        print(serialized)
     return 0
 
 

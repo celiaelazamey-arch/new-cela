@@ -617,3 +617,36 @@ def test_archive_limits_pptx_psd_pascal_and_cache_expiration(tmp_path: Path) -> 
         == IngestionStatus.ZP_OR_EXE_BLOCKED.value
     )
 
+
+
+def test_sanitizer_uri_canonical_case_and_balanced_markup() -> None:
+    """Regression: reject backslash network-paths, preserve SVG camelCase, and balance markup."""
+    from src.ingestion.pipeline import _is_safe_uri
+
+    assert not _is_safe_uri("/\\\\evil.example/path")
+    sanitized, _warnings = sanitize_svg_or_html(
+        '<svg viewBox="0 0 10 10"><linearGradient id="g"><stop offset="0"/></linearGradient>'
+        '<a href="https://example.invalid">ok</a></svg></div><a>unclosed'
+    )
+    assert "viewBox=" in sanitized
+    assert "<linearGradient" in sanitized and "</linearGradient>" in sanitized
+    assert "cela-g" in sanitized
+    assert sanitized.count("<a ") == sanitized.count("</a>")
+    assert "href=\"https://example.invalid\"" in sanitized
+    external_svg, _ = sanitize_svg_or_html('<svg><svg href="https://evil.invalid/a.svg"/></svg>')
+    assert "https://evil.invalid" not in external_svg
+
+
+def test_worker_result_schema_rejects_invalid_status_and_size() -> None:
+    from src.ingestion.pipeline import IngestionResult
+
+    payload = {
+        "id": "sha256:abc", "name": "sample.txt", "mime": "text/plain", "size": 1,
+        "status": "invented", "parser": "text", "text": "x",
+    }
+    with pytest.raises(ValueError, match="unknown status"):
+        IngestionResult.from_dict(payload)
+    payload["status"] = IngestionStatus.EXTRACTED.value
+    payload["size"] = True
+    with pytest.raises(ValueError, match="invalid size"):
+        IngestionResult.from_dict(payload)

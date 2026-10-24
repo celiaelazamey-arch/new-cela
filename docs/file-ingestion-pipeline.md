@@ -58,6 +58,10 @@ store & index (Idempotency cache by tenant_id + PIPELINE_VERSION + limits.finger
    - حماية الصور من قنابل فك الضغط (`max_image_pixels = 64,000,000` بكسل) وتحديد سقف صفحات PDF (`max_pdf_pages = 500`).
 3. **عزل المعالجة في عملية فرعية (`ingest_file_isolated` / `isolate_in_subprocess=True`):**
    - تشغيل المحلّل في عملية Python فرعية معزولة بلا صدفة (`shell=False`)، ببيئة نظيفة (`PATH=""`) وسقف زمني (`parser_timeout_seconds = 15s`) لمنع تعليق أو اختراق العملية الرئيسية.
+   - تُنسخ بايتات الإدخال إلى مجلد العامل ويُتحقق من SHA-256 قبل التحليل لمنع اختلاف الملف بين حساب الهوية وإعادة الفتح.
+   - يكتب العامل JSON إلى ملف محدود عبر `RLIMIT_FSIZE`؛ stdout/stderr إلى `DEVNULL`، والأب يتحقق من الحجم والمخطط والهوية قبل قبول النتيجة. فشل العامل مغلقاً (`blocked`).
+   - حدود فك ZIP خطوة بخطوة، مع التحقق من اكتمال تدفق DEFLATE والحجم وCRC وعدم استدعاء `flush()` غير المحدود.
+   - موارد النظام الاختيارية تشمل `RLIMIT_NPROC`, `RLIMIT_NOFILE`, `RLIMIT_CORE=0` عند دعم المنصة.
 
 ### ثانياً: ضوابط P1 (عالية)
 1. **تعقيم `SVG/HTML` بقائمة بيضاء (`_AllowlistSvgHtmlSanitizer`):**
