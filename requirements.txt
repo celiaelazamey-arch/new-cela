@@ -9,7 +9,7 @@
 # ---- النواة والإعدادات ----
 pydantic>=2.11.5
 pydantic-settings>=2.0.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.4
 httpx>=0.27.0
 
 # ---- عملاء النماذج المجانية (تُستخدم أيضاً داخل browser-use) ----
