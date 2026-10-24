@@ -57,10 +57,13 @@ TOOL_ONLY: frozenset[str] = frozenset(
     {"ruff", "pytest", "playwright", "httpx", "groq", "pip-audit", "python-dotenv"}
 )
 
-# حزم اختيارية: تُثبَّت في CI لكن قد لا تكون في بيئة محلية محدودة.
+# حزم اختيارية بحكم التصميم: تُثبَّت من ملفات requirements-* منفصلة، وقد لا
+# تكون موجودة في تثبيت النواة (أو في CI الذي يثبّت النواة فقط).
+# ``browser-use`` تحديداً مقصود غيابه عن CI: نقله إلى الملف الاختياري هو
+# جوهر إصلاح ثغرات aiohttp — فلا يجوز أن يُجبر الحارس على تثبيته.
 OPTIONAL: frozenset[str] = frozenset(
     {"qiskit", "qiskit-aer", "google-api-python-client", "google-auth",
-     "google-auth-oauthlib", "google-genai", "pillow"}
+     "google-auth-oauthlib", "google-genai", "pillow", "browser-use", "playwright"}
 )
 
 
@@ -177,16 +180,24 @@ def main() -> int:
             f"— {'خطأ' if args.require_installed else 'تحذير بيئي'}:"
         )
         for dist, locations in not_installed:
-            tag = " (اختيارية، تُثبَّت في CI)" if dist in OPTIONAL else ""
+            tag = " (اختيارية — يُسمح بغيابها)" if dist in OPTIONAL else ""
             print(f"     '{dist}'{tag} | {locations[:1]}")
         if not args.require_installed:
             print("\n  ملاحظة: قد تكون الحزم مركّبة في venv آخر. شغّل الفاحص بنفس")
             print("  مفسّر المشروع، أو استخدم --require-installed لوضع صارم.")
             print("  في CI تُشغَّل هذه الخطوة بعد تثبيت كل المتطلبات.")
 
+    # الوضع الصارم يفشل فقط على الحزم **الإلزامية** غير المثبّتة؛
+    # الاختيارية يُسمح بغيابها (هذا هو مغزى فصلها في ملفات منفصلة).
+    required_missing = [(d, loc) for d, loc in not_installed if d not in OPTIONAL]
+    if args.require_installed and required_missing:
+        print(f"\n  ❌ الوضع الصارم: {len(required_missing)} حزمة إلزامية غير مثبّتة:")
+        for dist, locations in required_missing:
+            print(f"     '{dist}' | {locations[:1]}")
+
     print("\n  ⚠️  لا تضف أي حزمة قبل التحقق من وجودها وسمعتها (Slopsquatting).")
     print("=" * 70)
-    return 1 if undeclared or (args.require_installed and not_installed) else 0
+    return 1 if undeclared or (args.require_installed and required_missing) else 0
 
 
 if __name__ == "__main__":

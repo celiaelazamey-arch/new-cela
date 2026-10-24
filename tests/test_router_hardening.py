@@ -161,3 +161,33 @@ def test_sanitize_truncates_long_output():
     cleaned = sanitize("أ" * 5000, limit=500)
     assert len(cleaned) < 600
     assert "اقتُطع" in cleaned
+
+
+# ================= حارس التبعيات: الاختيارية لا تُفشل الوضع الصارم =================
+
+def test_dependency_guard_strict_ignores_optional_missing(monkeypatch):
+    """اختبار regression: CI النظيف لا يثبّت browser-use ⇒ يجب ألا يفشل --require-installed.
+
+    كان الحارس يفشل في CI لأن venv المطوّر كان يحتوي browser-use قديماً،
+    بينما تثبيت CI للنواة فقط لا يحتويه. الاختيارية لا تُجبر على التثبيت.
+    """
+    import importlib.metadata as md
+    import runpy
+
+    import scripts.dependency_guard as guard
+
+    monkeypatch.setattr(guard, "OPTIONAL", frozenset({"browser-use", "playwright"}))
+    real_version = md.version
+
+    def fake_version(name: str) -> str:
+        if name in ("browser-use", "playwright"):
+            raise md.PackageNotFoundError(name)
+        return real_version(name)
+
+    monkeypatch.setattr(guard.md, "version", fake_version)
+    monkeypatch.setattr(guard.sys, "argv", ["dependency_guard.py", "--require-installed"])
+
+    try:
+        runpy.run_path("scripts/dependency_guard.py", run_name="__main__")
+    except SystemExit as exc:
+        assert exc.code == 0, f"الوضع الصارم فشل رغم أن الناقص اختياري: {exc.code}"

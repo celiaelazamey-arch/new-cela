@@ -23,6 +23,8 @@ agent_task.txt
 agent_result.txt
 comment_body.md
 audit-report.json
+audit-core.json
+audit-browser.json
 
 # ---- أدوات واختبارات ----
 .pytest_cache/
