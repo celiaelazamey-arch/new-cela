@@ -61,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="عرض جدول مقارنة خطط التسعير والحصص في صفحة واحدة (البند 7)",
     )
     parser.add_argument(
+        "--niches",
+        action="store_true",
+        help="عرض استراتيجية النيش العمودي ومقياس القرار بعد 90 يوماً",
+    )
+    parser.add_argument(
         "--plan",
         choices=["free", "pro", "team", "business", "enterprise"],
         default=None,
@@ -463,7 +468,22 @@ def main() -> int:
             print(render_pricing_table())
         return 0
 
-    # ---- التحقق اليدوي من --task (لأن --health و --plans يعفيان منه) ----
+    # ---- عرض النيشات العمودية ومقياس الـ 90 يوماً: بلا نداءات شبكية ----
+    if getattr(args, "niches", False):
+        import json as _json
+
+        from src.core.niche_strategy import NICHE_CATALOG, render_niche_playbook
+
+        if args.json:
+            payload = {
+                niche.value: spec.to_dict() for niche, spec in NICHE_CATALOG.items()
+            }
+            print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(render_niche_playbook())
+        return 0
+
+    # ---- التحقق اليدوي من --task (لأن --health و --plans و --niches تعفي منه) ----
     if not args.task or not args.task.strip():
         print("❌ الوسيط --task مطلوب (إلا مع --health).", file=sys.stderr)
         return 2

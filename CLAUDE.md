@@ -49,6 +49,10 @@ Spec ← Generate ← Automated gates ← Human review ← Merge
 | السياسة | `src/core/policy.py` | **رفض افتراضي**؛ `DEFAULT_SCOPES = {fs.read}` |
 | الحصص | `src/core/quota.py` | `TrustLevel.PAID` ممنوع في الوضع صفري التكلفة |
 | الخطط والتسعير | `src/core/pricing.py` | `PlanTier` · `PLAN_CATALOG` · `evaluate_usage_alert` (80%) · `calculate_unit_economics` |
+| استراتيجية النيش | `src/core/niche_strategy.py` | `VerticalNiche` · `NICHE_CATALOG` · `validate_positioning_claim` · `evaluate_90_day_gate` |
+| مطبعة الملابس (سلك سكرين) | `src/screen_print/engine.py` | `FilmArchiveStore` · `inspect_film_image` · `recommend_mesh_and_lpi` · `calculate_screen_print_job` |
+| دستور التشغيل (18 قاعدة) | `src/core/playbook.py` | `evaluate_golden_rule_stage` · `create_verified_backup` · `restore_and_verify_backup` · `audit_18_point_playbook` |
+| استيعاب الملفات الطبقي | `src/ingestion/pipeline.py` | `detect_magic_mime` · `detect_and_decode_text` (`cp1256`) · `sanitize_svg_or_html` · `ingest_file` · `IngestionPipeline` |
 | التنفيذ | `src/execution/sandbox.py` | `create_subprocess_exec` **بلا shell** + timeout |
 | الذاكرة | `src/core/memory.py` | JSONL append-only، خارج git |
 
@@ -171,13 +175,17 @@ scripts/secret_scan.py · scripts/pii_scan.py :: قوائم السماح (لا �
 | [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) | الوعي الوظيفي (12 س/ج): تقادم نموذج الذات، معايرة، L0–L3 + kill switch، مقاييس، محكّم |
 | [`docs/monetization-plan.md`](docs/monetization-plan.md) | خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela` |
 | [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) | أدوات الجودة والأمان والاختبار والنشر المجانية (14 فئة) — تحقق حدود 2026 وتقييم `new-cela` |
+| [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) | استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود + بوابة 90 يوماً) |
+| [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) | دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») |
+| [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md) | معمارية خط أنابيب استيعاب واستخراج الملفات الطبقي (Magic Bytes، Windows-1256، Zip-Bomb، PSD/CMYK، وJSON موحد) |
+| [`CHANGELOG.md`](CHANGELOG.md) | سجل التغييرات ودراسة حالة العميل رقم #0 (مطبعة السلك سكرين) |
 
 ---
 
 ## 9. قبل أن تبدأ أي مهمة
 
 - [ ] قرأت `AGENT_HANDOFF.md` وتعرف آخر مهمة منفّذة.
-- [ ] شغّلت `git branch --show-current` وتعرف اسم برانش الجلسة (حالياً `arena/eef426e3-new-cela`) ولن تدفع إلى غيره.
+- [ ] شغّلت `git branch --show-current` وتعرف اسم برانش الجلسة (حالياً `arena/3c154eae-new-cela`) ولن تدفع إلى غيره.
 - [ ] ستبني على **المصدر الأصلي** لا على مخرجاتك السابقة (البند 4: Logic Drift).
 - [ ] ستشغّل البوابات كلها قبل إعلان الاكتمال.
 - [ ] ستسجّل ما فعلته في `AGENT_HANDOFF.md` وتدفعه.

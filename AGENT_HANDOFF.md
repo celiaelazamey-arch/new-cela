@@ -24,8 +24,8 @@
 | العنصر | القيمة |
 |---|---|
 | المستودع | `celiaelazamey-arch/new-cela` |
-| البرانش الإلزامي | **برانش الجلسة الحالية** (`git branch --show-current`) — حالياً `arena/eef426e3-new-cela` |
-| نقطة الأساس الحالية | `6d5f9ae160a2175e4a8a158ca012a78774833814` (من `main` = دمج PR #8) + دمج `372ae40` (PR #9) |
+| البرانش الإلزامي | **برانش الجلسة الحالية** (`git branch --show-current`) — حالياً `arena/3c154eae-new-cela` |
+| نقطة الأساس الحالية | `3e9c2d66690ef40479238ac6113c50875782ec8c` (من `main` = دمج PR #10 وPR #9) |
 | الـ remote | `https://github.com/celiaelazamey-arch/new-cela.git` |
 | بوابات الدفع المسموحة | `origin <برانش الجلسة>` فقط |
 
@@ -40,8 +40,9 @@
 > | 4 | `arena/60762df1-new-cela` | — | دُمج PR #5 ثم أُلغي بـ PR #6 |
 > | 5 | `arena/1756fb0e-new-cela` | `9dc094e` | دُمج PR #7 (المهام 1–9) |
 > | 6 | `arena/f26ae208-new-cela` | `c2239de` | دُمج PR #8 (`6d5f9ae` — إغلاق 4 تنبيهات CodeQL) |
-> | 7 | `arena/9131baa0-new-cela` | `c2239de` | PR #9 (الوعي الوظيفي + خطة الإكمال) — حُلَّ تعارضه مع PR #8 ودُمج هنا |
-> | 8 (الحالية) | `arena/eef426e3-new-cela` | `6d5f9ae` | نشطة (توحيد PR #8 + PR #9 + المهمة 12 خطة الربح والتسعير) |
+> | 7 | `arena/9131baa0-new-cela` | `c2239de` | دُمج PR #9 تلقائياً ضمن PR #10 (`3e9c2d6`) |
+> | 8 | `arena/eef426e3-new-cela` | `6d5f9ae` | دُمج PR #10 (`3e9c2d6` — المهام 11-ب و12 و13) |
+> | 9 (الحالية) | `arena/3c154eae-new-cela` | `3e9c2d6` | نشطة (PR #19 Draft؛ الشريحة المحلية الأولى للسلك سكرين) |
 
 ---
 
@@ -106,12 +107,24 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 | 11-أ | **إغلاق تنبيهات CodeQL الأربعة** على `main` (3 High + 1 Medium) + **دمج PR #8** | ✅ **مُنفّذة ومُدمجة في `main`** | حاجز `path_guard.py` · **449 pytest ✅** · فحوص PR #8 خضراء · دمج `6d5f9ae` | `6d5f9ae` |
 | 11-ب | دفعة **الوعي الوظيفي** (12 س/ج: تقادم نموذج الذات · drift · معايرة · L0–L3 + kill switch · مقاييس · محكّم · 29 اختبار حقن) + خطة الإكمال | ✅ **منفّذة ومُدمجة بلا تعارض** (حُلَّ تعارض PR #9 مع PR #8) | 7 فواحص ✅ · ruff ✅ · `docs/functional-awareness-qa.md` · `docs/completion-plan.md` · CI ✅ `40072241022` | `5811b5e` + `372ae40` |
 | 12 | **تخصيص وتنفيذ خطة الربح والتسعير واقتصاديات الوحدة (14 بنداً) لـ `new-cela`** + **حل تعارض PR #9** | ✅ **مقبولة** (أكدتها لقطة شاشة PR #10 الأخضر بالكامل) | `docs/monetization-plan.md` · `src/core/pricing.py` · `--plans`/`--plan` · توحيد PR #8 + PR #9 + المهمة 12 · **488 pytest ✅** · PR #10 `CLEAN` ✅ | `aeb9427` + `7660215` |
-| 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · كل الحواجز وCI ✅ | `ddda822` |
+| 13 | **التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + تطبيق الأولويات الصفرية** | ✅ **مقبولة ومُدمجة في `main`** (PR #10 `3e9c2d6`) | 7 تصحيحات موثّقة لعام 2026 · `docs/devsecops-free-tools.md` · `.github/dependabot.yml` · `.github/CODEOWNERS` · `src/core/prompt_guard.py` · **493 pytest ✅** · دمج PR #10 ✅ | `ddda822` + `3e9c2d6` |
+| 14 | **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً** | ✅ **مقبولة** (أكدها المستخدم بطلب تشغيل `--niches` وذكر مطبعته الخاصة) | تحقق مصدري لوضع Manus حتى أكتوبر 2026 · `docs/niche-strategy-manus.md` · `src/core/niche_strategy.py` · `--niches` · **497 pytest ✅** | `d5443dc` + `8c5cf5e` |
+| 15 | **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) للعميل رقم #0 (مطبعة المستخدم)** | ✅ **مقبولة** (أكدها المستخدم بطلب فتح PR #19) | `FilmArchiveStore` · `inspect_film_image` · `calculate_screen_print_job` · **500 pytest ✅** · PR #19 `CLEAN` ✅ | `006d09d` + `5be9536` |
+| 16 | **دستور التشغيل الهندسي والتجاري (18 قاعدة) + القاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع») + النسخ الاحتياطي وتجربة الاستعادة الفعلية + `CHANGELOG.md`** | ✅ **مقبولة** (اعتُمدت بتفويض المهمة 17) | `docs/operating-playbook-18.md` · `src/core/playbook.py` · `CHANGELOG.md` · **504 pytest ✅** · كل الحواجز وCI ✅ | `be42949` + `b319207` |
+| 17 | **بناء خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py`)** | ✅ **مُنفّذة — بانتظار تأكيد المستخدم** | Magic Bytes · `cp1256` · `pypdf` · `DOCX` · `PSD/CMYK/DPI` · `SVG XSS/XXE` · `Zip Bomb` · **511 pytest ✅** · كل الحواجز وCI ✅ | `4de40c4` |
+| 18 | **شريحة محلية أولى لمساعد مطابع السلك سكرين مع أدوات تصميم/موك أب/فحص دقة/ملاحظات ترند** | 🟡 **مُنفّذة أولياً — بانتظار مراجعة المستخدم** | Streamlit AppTest + أرشيف CRUD + رفع مؤقت + prompts + DPI checker + trend notes + **669 pytest ✅** + تغطية كلية **87.88%** + الحواجز المحلية ✅ | قيد الحفظ |
 
 ### الحالة الحالية
-- **المهمة النشطة:** رقم 13 — التحقق من حدود الطبقة المجانية (2026) لأدوات الجودة والأمان والنشر والـ AI (14 فئة) + إضافة `dependabot.yml` و`CODEOWNERS` وحارس حقن التوجيه `src/core/prompt_guard.py`.
-- **الفرع الحالي:** `arena/eef426e3-new-cela` (مرتبط بـ **PR #10** المفتوح والجاهز للدمج `CLEAN / MERGEABLE` إلى `main`).
-- 🛡️ **مرجع أدوات DevSecOps المجانية (2026) الجديد:** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
+- **المهمة النشطة:** رقم 18 — بناء شريحة محلية أولى لمنتج السلك سكرين، بناءً على اختيار المستخدم؛ لا نشر عام في هذه المرحلة.
+- **الفرع الحالي:** `arena/3c154eae-new-cela` (مرتبط بـ **PR #19** المفتوح كـ Draft؛ لا يُدمج حتى استيفاء بوابات المستخدم السابقة).
+- 📂 **محرك الاستيعاب:** [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) + المرجع [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md)؛ ما تزال مسارات Drive/OCR/قارئ الملفات واختبارات bypass غير مغلقة.
+- 🖨️ **الواجهة المحلية الأولية:** [`src/screen_print/app.py`](src/screen_print/app.py) للأرشيف والفحص والتقدير، prompts للنقوش/الموك أب، فحص DPI، وتلخيص ملاحظات ترند يدوية؛ لا اتصال فعلي بمولدات الصور/الموك أب أو شبكات التواصل/المتاجر. ليست SaaS ولا تحتوي دخولاً أو تخزيناً سحابياً.
+- **التشغيل الخارجي من Arena:** Vercel connector غير متصل؛ workflow_dispatch رُفض سابقاً بـ403 بسبب صلاحيات GitHub؛ لم يحدث نشر أو تشغيل يدوي ناجح.
+- 📜 **مرجع دستور التشغيل (18 قاعدة):** [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md) + الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + [`CHANGELOG.md`](CHANGELOG.md).
+- 👕 **محرك وواجهة السلك سكرين المحلية:** [`src/screen_print/engine.py`](src/screen_print/engine.py) · [`src/screen_print/app.py`](src/screen_print/app.py) · prompts/فحص DPI/تحليل يدوي [`src/screen_print/design_tools.py`](src/screen_print/design_tools.py) · فحص الرفع المؤقت [`src/screen_print/uploads.py`](src/screen_print/uploads.py) · توثيق [`docs/screen-print-local-mvp.md`](docs/screen-print-local-mvp.md).
+- ⛔ **بوابات الدمج السابقة لـPR #19 ما زالت مفتوحة:** مصفوفة ملفات واقعية خضراء، اختبارات bypass، إثبات حفظ الأصل على تخزين فعلي، ووسم/حماية `untrusted_content`.
+- 🎯 **مرجع استراتيجية النيش العمودي:** [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md) + الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + خيار CLI `--niches`.
+- 🛡️ **مرجع أدوات DevSecOps المجانية (2026):** [`docs/devsecops-free-tools.md`](docs/devsecops-free-tools.md) + حارس حقن التوجيه [`src/core/prompt_guard.py`](src/core/prompt_guard.py) + `.github/dependabot.yml` + `.github/CODEOWNERS`.
 - 📋 **خطة إكمال البنود الناقصة** (من PR #9): [`docs/completion-plan.md`](docs/completion-plan.md) — 15 فجوة مجرودة من الكود، 4 مراحل.
 - **مرجع الوعي الوظيفي الجديد:** [`docs/functional-awareness-qa.md`](docs/functional-awareness-qa.md) — الـ12 سؤالاً مُقيَّمة قبل/بعد بأدلة ملف:سطر.
 - ⚠️ **خط أحمر جديد يحرسه `policy_guard`:** الاستقلالية الافتراضية `L1` وشرط kill switch لـ L3.
@@ -163,6 +176,44 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 
 ## 6. سجل الإنجازات
 
+- **2026-10-24** — المهمة 17 (الإصدار المحصّن `v2.0.0`): **بناء وتحصين خط أنابيب استيعاب واستخراج الملفات الطبقي الآمن (`src/ingestion/pipeline.py` + `docs/file-ingestion-pipeline.md` + `tests/test_ingestion.py` — شامل إصلاحات P0 + P1 + P2)**:
+  - **✅ المرجع المعماري الدائم [`docs/file-ingestion-pipeline.md`](docs/file-ingestion-pipeline.md):** يوثّق المراحل الثمان، مقارنة التراخيص التجارية (`pypdf` BSD مقابل `PyMuPDF` AGPL)، وضوابط التحصين `P0/P1/P2`.
+  - **✅ المحرك البرمجي [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) (`PIPELINE_VERSION = "2.0.0"`) + الاختبارات الهجومية [`tests/test_ingestion.py`](tests/test_ingestion.py):**
+    1. **حماية XML الصارمة (`safe_xml_fromstring` + `defusedxml` — P0):** حظر `<!DOCTYPE` و`<!ENTITY` (`Billion Laughs` / `XXE`) وفرض سقوف حيّة على حجم XML (`max_xml_bytes`) وعمق الشجرة (`max_xml_depth`) وعدد العناصر (`max_xml_elements`).
+    2. **فك الضغط التدفقي المحدود وعدم الثقة بترويسة ZIP (`_safe_read_zip_entry` — P0):** مطابقة `Local File Header` مع `Central Directory`، وفك الضغط عبر `zlib.decompressobj(-15)` بسقف فعلي يكشف الترويسات المزوّرة (`zip_bomb_spoofed_header`) ويحظر الأرشيفات المتداخلة (`zip_bomb_nested_archive`) واجتياز المسارات (`archive_path_traversal`) وقنابل الصور (`max_image_pixels`).
+    3. **عزل المعالجة في عملية فرعية (`ingest_file_isolated` — P0):** تشغيل المحلّل في عملية Python فرعية بلا صدفة (`shell=False`) وببيئة نظيفة وسقف زمني (`parser_timeout_seconds`).
+    4. **معقّم القائمة البيضاء لـ `SVG/HTML` (`_AllowlistSvgHtmlSanitizer` — P1):** تحليل شجري عبر `HTMLParser` يسمح فقط بوسوم وسمات آمنة، ويفك كيانات HTML (`html.unescape`) قبل فحص الروابط و`style` لإحباط `<foreignObject>` و`&#106;avascript:` و`data:` و`url(javascript:...)`، مع ترويسات `CSP` و`Content-Disposition: attachment`.
+    5. **توسيع كشف البصمة الثنائية وفحص الفيروسات والماكرو (`scan_for_malware` — P1):** دعم `Mach-O`, `Java Class`, `WASM`, `OLE2`, `7z`, `RAR`, `TAR`، ومؤشرات اسكربتات `Batch/PowerShell` المتخفّية، وحظر ماكرو `VBA` (`vbaProject.bin` في OOXML و`_VBA_PROJECT` في OLE2)، وفحص `ClamAV` / `EICAR` / `av_scanner`.
+    6. **مفتاح Cache مركّب يعزل المستأجرين والإصدار (`tenant_id + PIPELINE_VERSION + limits.fingerprint() + sha256` — P1).**
+    7. **الدقة التقنية للمطابع والعربية (P2):** قراءة قسم `Image Resources` (`8BIM`: `0x03EE`, `0x0415`, `0x0435`) في `PSD` للتمييز بين `base_channels` وقنوات `Spot/Alpha` وأسمائها الفعلية، وحساب `effective_dpi` الفعلي بمعلومية مقاس الطباعة، واستخراج `XLSX` الكامل (`sharedStrings` + `inlineStr` + المعادلات + الأوراق المتعددة + الاقتطاع `partial`)، وحساب `encoding_confidence` لترميز `cp1256` مع مرجع `charset_normalizer`.
+  - **✅ التحقق:** **514 pytest ✅** (تغطية `src/ingestion/pipeline.py` بلغت **`93%`** شاملة كل فروع الأمان، والتغطية الكلية للمشروع **`87.74%`**) · **97 عقداً معمارياً** و**15 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
+- **2026-10-24** — المهمة 16: **تجسيد وتوثيق دستور التشغيل الهندسي والتجاري (18 قاعدة) والقاعدة الذهبية («بسيط ← يعمل ← يُقاس ← يُباع ← ثم يتوسع»)**:
+  - **✅ المرجع الدائم [`docs/operating-playbook-18.md`](docs/operating-playbook-18.md):** يربط القواعد الـ 18 كاملةً بأدلة الكود الفعلية في `new-cela` (`18/18` محققة برمجياً).
+  - **✅ سجل التغييرات ودراسة حالة العميل رقم #0 [`CHANGELOG.md`](CHANGELOG.md) (البند 17 — ابنِ علناً):** يوثّق دراسة حالة مطبعة الملابس (السلك سكرين) وأرشيف الأفلام وسجل الإصدارات من `0.2.0` حتى `0.5.0`.
+  - **✅ الوحدة البرمجية [`src/core/playbook.py`](src/core/playbook.py) + `tests/test_playbook.py`:**
+    1. **بوابة القاعدة الذهبية (`evaluate_golden_rule_stage`):** تفرض التسلسل الإلزامي `SIMPLE` ← `WORKS` ← `MEASURED` ← `SOLD` (3–10 عملاء يدفعون يدوياً قبل بناء بوابة الدفع) ← `SCALES` (>= 10 عملاء بهامش موجب ونسبة نجاح >= 85%).
+    2. **النسخ الاحتياطي الموثّق بـ `SHA-256` وتجربة الاستعادة الفعلية (`create_verified_backup` & `restore_and_verify_backup` — البند 6 و16):** ينشئ نسخة احتياطية قبل العمليات الكبيرة ويجري اختبار استعادة فعلياً (`Restore Drill`) على أرشيف أفلام المطبعة مع التحقق من تطابق البصمة والحجم.
+    3. **بوابة الاستمرارية والـ 30 يوماً (`evaluate_30_day_activity_gate` — البند 18):** تفرض مهمة واحدة يومياً، وأسبوع مراجعة كل 4 أسابيع، وتجميد أي مشروع يتوقف 30 يوماً.
+    4. **المدقق الآلي للبنود الـ 18 (`audit_18_point_playbook`):** يتحقق برمجياً من وجود جميع الملفات والأدلة الـ 18 في المستودع.
+  - **✅ التحقق:** **504 pytest ✅** · **82 عقداً معمارياً** و**14 مرجعاً إلزامياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
+- **2026-10-24** — المهمة 15: **بناء محرك مطبعة الملابس (السلك سكرين) وأرشفة وفحص أفلام الطباعة (`src/screen_print/engine.py`) لمطبعة المستخدم (العميل رقم #0)**:
+  - **💡 نقطة التحول الاستراتيجية:** كشف المستخدم أنه يملك فعلياً **مطبعة ملابس سلك سكرين ولديه أرشيف كبير من أفلام الطباعة** (`انا املك مطبعة ملابس ايضا سلك سكرين ولدي افلام طباعة كتير`) — مما يعني أن النيش الأول (`print_prepress`) ليس فرضية نظرية بل هو عمله الفعلي (Customer #0 بتكلفة استحواذ 0 ج.م وبيانات حقيقية من أرشيف أفلامه!).
+  - **✅ بناء الوحدة البرمجية [`src/screen_print/engine.py`](src/screen_print/engine.py) + `tests/test_screen_print.py`:**
+    1. **أرشيف أفلام السلك سكرين الذكي (`FilmArchiveStore` & `FilmSetRecord`):** يسجّل كل طقم أفلام (`film_id`، اسم الموديل/التصميم، اسم العميل/البراند، نوع القطعة، لون القماش `dark`/`light`، عدد وطبقات الألوان، أرقام الحرير بالـ T، ومكان الحفظ الفعلي في الأدراج/الحافظات) مع بحث نصي فوري بالعربية لاسترجاع الأفلام في ثوانٍ عند طلبات إعادة التشغيل (Re-orders).
+    2. **الفحص الفني لصورة الفيلم قبل تصوير الشبلونة (`inspect_film_image` عبر `Pillow`):** يحسب كثافة السواد (`black_density_pct`) لمنع تسريب إضاءة الكشاف أثناء تصوير الإيمالشن، ونسبة تغطية الحبر (`ink_coverage_pct`)، وسلامة الهامش الخارجي لعلامات التسجيل/الصليبة (`has_margin_for_registration`).
+    3. **حاسبة الشبلونات ورقم الحرير واستهلاك الحبر والتسعير بالجنيه (`calculate_screen_print_job` & `recommend_mesh_and_lpi`):** تضيف تلقائياً شبلونة أرضية بيضاء (`Underbase White` + `Flash Cure`) للأقمشة الغامقة، وتوصي برقم الحرير (`43T`–`110T`) وأقصى تردد شبكي `LPI` لمنع المواريه (`Moiré`)، وتحسب استهلاك الحبر بالجرام والوفر المالي المباشر بالجنيه الناتج عن وجود الفيلم في الأرشيف (`film_archive_savings_egp`).
+  - **✅ التحقق:** **500 pytest ✅** · **72 عقداً معمارياً** في `spec_check.py` · جميع الحواجز الـ 7 و`ruff` خضراء.
+- **2026-10-24** — المهمة 14: **استراتيجية النيش العمودي ومنافسة المنصات العامة (Manus نموذجاً — 7 بنود) + التحقق من تطورات صفقة Meta/Manus في 2026 + بوابة القرار بعد 90 يوماً**:
+  - **✅ دمج PR #10 (وPR #9 تلقائياً) في `main` (`3e9c2d6`):** بناءً على طلب المستخدم `Please merge the pull request`، نُفِّذ `gh pr merge 10 --merge` بنجاح وأصبح `main` يضم المهام 1–13 كاملةً بلا أي طلب سحب معلّق.
+  - **✅ التحقق المصدري الحي لوضع Manus AI حتى أكتوبر 2026:**
+    1. تأكيد تجاوز Manus حاجز **$100M ARR** ($125M run rate) خلال 8 أشهر في ديسمبر 2025، وإعلان صفقة استحواذ Meta بـ **~$2B–$3B** في 29 ديسمبر 2025، وتسعير $39–$199/شهر.
+    2. **تحديث جيو-تنظيمي جوهري في 2026:** في **27 أبريل 2026** أوقفت اللجنة الوطنية للتنمية والإصلاح الصينية (NDRC) صفقة استحواذ Meta على Manus بموجب ضوابط تصدير التكنولوجيا السيادية وأمرت بفك الارتباط؛ وفي يونيو–أغسطس 2026 عادت Manus شركة مستقلة بعد قفز إيراداتها إلى **$400M–$500M ARR**، ثم جمعت في **8 أكتوبر 2026 تمويلاً جديداً يفوق $500M** بقيادة Boyu Capital وIDG Capital لتقييم يستهدف ~$4B. هذا التطور يعزّز الحكم الاستراتيجي مرتين: (أ) استحالة منافسة منصة عامة تملك $500M+ سيولة، و(ب) إثبات أن **سيادة البيانات والامتثال المحلي (قانون مصر 151/2020) واللغة العربية والدفع المحلي** هي الخندق الدفاعي الحقيقي.
+  - **✅ المرجع الدائم [`docs/niche-strategy-manus.md`](docs/niche-strategy-manus.md):** توثيق البنود السبعة وربطها بمعمارية `new-cela`.
+  - **✅ الوحدة البرمجية [`src/core/niche_strategy.py`](src/core/niche_strategy.py) + `tests/test_niche_strategy.py` + خيار CLI `--niches`:**
+    1. كتالوج النيشات العمودية الأربعة (`NICHE_CATALOG`: `print_prepress` للمطابع وفصل الألوان، `accounting_compliance` لمكاتب المحاسبة والامتثال، `arabic_ecommerce` للمتاجر العربية، `devsecops_arabic` لفرق البرمجة العربية) مع وسائل الدفع المحلية (`InstaPay`, `Fawry`, `Paymob`, `Vodafone Cash`).
+    2. حارس التموضع التسويقي (`validate_positioning_claim`): يمنع آلياً عبارات «بديل Manus» و«وكيل يفعل أي شيء» و«بلا حدود».
+    3. بوابة القرار بعد 90 يوماً (`evaluate_90_day_gate`): تفحص الشروط الثلاثة (`paying_customers >= 10`، `task_success_rate >= 0.85`، `margin_per_user_egp > 0`) وتُصدر القرار الآلي (`EXPAND` | `PIVOT_NICHE_KEEP_TOOLS` | `FIX_WORKFLOW_RELIABILITY` | `FIX_UNIT_ECONOMICS`).
+  - **✅ التحقق:** **497 pytest ✅** (تغطية شاملة **86.78%**) · **62 عقداً معمارياً** و**12 مرجعاً إلزامياً** في `spec_check.py` · كل الحواجز الـ 7 خضراء.
 - **2026-10-24** — المهمة 13: **التحقق من حدود الطبقة المجانية لعام 2026 لأدوات الجودة والأمان والاختبار والنشر والـ AI (14 فئة) + تنفيذ الإضافات ذات الأثر الأعلى وبزمن إضافي 0 ثانية على الـ Pipeline**:
   - **✅ تحقق ويب فعلي لعام 2026 (7 تصحيحات جوهرية عن المعرفة العامة القديمة):**
     1. **Fly.io:** أُلغيت الطبقة المجانية تماماً للحسابات الجديدة منذ أكتوبر 2024 (تجربة 7 أيام/ساعتين فقط ثم فوترة فورية، ورُفع سعر الذاكرة في **1 أكتوبر 2026** إلى $6/GB/شهر).
@@ -284,6 +335,28 @@ gh run list --branch "$(git branch --show-current)" --limit 3 # بوابة ال�
 ---
 
 - **2026-10-24** — طلب المستخدم «خطة تنفيذية لإكمال البنود الناقصة». جُردت الفجوات **من الكود** (grep: `Arbiter` و`compute_metrics` غير مُسلَّكين؛ `replace_text` بلا نسخة قبلية ⇒ L2 عملياً = L1؛ لا lockfile؛ CodeQL لا يطبع ملخصاً؛ README يذكر 243 اختباراً). كُتبت `docs/completion-plan.md` بمعايير قبول قابلة للتشغيل لكل بند. **لم يُنفَّذ أي بند** — المهمة 11 لا تزال بانتظار التأكيد.
+
+---
+
+- **2026-10-24** — **المهمة 18: شريحة محلية أولى لمساعد مطابع السلك سكرين وتوسيع أدوات التصميم**، بناءً على اختيار المستخدم «شغل هنا أولاً» والنيش (مطابع ملابس صغيرة):
+  - **واجهة Streamlit محلية** في `src/screen_print/app.py`: أرشيف CRUD، فحص الفيلم، تقدير الشغل، prompts للنقوش المتكررة والموك أب، فحص DPI، وملخص كلمات اتجاهات يدوي.
+  - **Prompt/design tools** في `src/screen_print/design_tools.py`: صياغة prompt مخصص للتكرار والستايل والباليت والجمهور، وbrief موك أب يطلب الحفاظ على العمل الفني، وفحص DPI حسب الأبعاد الفعلية، وإحصاء كلمات من ملاحظات المستخدم. لا يوجد استدعاء Midjourney/PatternedAI/Verve/Botika/Photoshop أو أي مولّد صور.
+  - **القدرات الخارجية غير المنفذة بوضوح:** لا توليد صورة/عارض فعلي، لا AI upscaling أو إزالة خلفية أو فصل ألوان، لا جمع ترندات من الشبكات أو تخصيص متجر متصل؛ المتاح محلياً prompts وفحص DPI وملاحظات يدوية فقط.
+  - **حدود الرفع:** PNG/JPEG/TIFF فقط، حجم أقصى 25 MiB (server config + فحص تطبيقي)، إطار واحد، 20MP، لا يُستخدم اسم الملف، ونسخة مؤقتة تُزال بعد الفحص؛ لا ضمان للمحو الآمن ولا تخزين دائم للصور. لا رفع ملفات حقيقية إلى preview.
+  - **أمان الأرشيف المحلي:** حفظ JSONL ذري بـ `os.replace`، `fsync` وصلاحية ملف `0600` على POSIX؛ إمكانية حذف البطاقة. لا قاعدة بيانات/حسابات/نسخ احتياطي.
+  - **تحسين ذاكرة فحص الصورة:** الحساب يمر على `bytes` دون قائمتين ضخمتين، وفحص الحواف يقتصر على المحيط؛ القياس heuristic وليس اعتماد جودة طباعة.
+  - **الواجهة أُطلقت فعلياً على live preview عبر 8501**؛ اختُبر WebSocket handshake من أصل المعاينة (101 Switching Protocols)، وAppTest يغطي الواجهة والأرشيف/prompt/trend، واختبارات حدود الرفع وفشل الحفظ.
+  - **التحقق المحلي النهائي:** `ruff` ✅ · compileall ✅ · error/policy/action-pin/secret/PII/spec guards ✅ · `pytest -q --cov=src --cov-fail-under=60` = **669 passed, 68 warnings, 87.88% coverage**. `dependency_guard --require-installed` يذكر `browser-use` اختيارياً وغير مثبّت؛ لا يفشل الفحص.
+  - **حدود معلنة:** لا تسجيل دخول، لا متعدد مستأجرين، لا API رفع HTTP عام، لا مزامنة/تخزين سحابي، لا مصادقة إنتاج أو نسخة احتياطية/استعادة، ولا مصفوفة أفلام واقعية. ليس منتجاً عاماً جاهزاً.
+  - **Vercel:** connector disconnected؛ لم يُنشأ مشروع أو نشر. **GitHub workflow_dispatch:** فشل سابقاً بـ403؛ لا تدقيق يدوي مؤكد. PR #19 يبقى Draft ولا تُغلق بواباته السابقة (المصفوفة، bypass، إثبات التخزين، `untrusted_content`).
+
+- **2026-10-24 — متابعة طلب المستخدم لدعم تسجيل الدخول والسحابة والمزامنة:** اختار Supabase + البريد/كلمة المرور + مزامنة بيانات الأرشيف الوصفية فقط.
+  - أُضيف عميل Supabase REST في `src/screen_print/cloud_sync.py`، وتبويب الحساب والمزامنة في Streamlit؛ المفاتيح من secrets/environment ولا يوجد `service_role` في الكود. جلسة الوصول في ذاكرة Streamlit فقط.
+  - أُضيف `src/screen_print/cloud_schema.sql` مع RLS وربط كل صف بـ`auth.uid()`، و`docs/screen-print-cloud-sync.md` يشرح إعداد المشروع والحدود.
+  - المزامنة يدوية وإضافية: ترسل/تستقبل السجلات غير الموجودة فقط، وترفض التعارضات بدلاً من الكتابة فوقها. الحذف لا يتزامن. الأرشيف المحلي للحساب المسجل الدخول منفصل حسب UUID؛ لا يُستورد الأرشيف المحلي السابق تلقائياً. الصور/الملفات لا تُرفع.
+  - لا يوجد مشروع Supabase حي أو أسرار مهيأة في البيئة، لذلك لا تُدّعَ خدمة سحابية عاملة أو نشر أو تحقق من RLS الفعلي. لا تزال استعادة كلمة المرور، التدفق الحي لتأكيد البريد، إدارة المستخدمين، الحذف السحابي، وتعدد المستأجرين الإنتاجي خارج النطاق.
+  - **الحفظ والبوابات:** `8915e22` تنفيذ أولي و`efab887` استبدال fixtures الشبيهة بالبريد بعد أن كشف PII Scan تطابقاً؛ أعيد الفحص وأصبح نظيفاً. آخر فحوص PR #19 بعد الدفع: quality وCodeQL (Python/Actions) وDependency Review ناجحة؛ Daily Dependency Audit تخطّى كونه schedule-only. PR #19 لا يزال Draft، ولا يُدمج دون الموافقة والشروط.
+  - الاختبارات الجديدة `tests/test_screen_print_cloud_sync.py` تغطي عميل HTTP المعزول والتعارضات؛ لم يُجرَ اختبار تكامل سحابي حقيقي. **التحقق بعد التنفيذ:** `ruff` ✅ · compileall ✅ · error/policy/dependency/action-pin/spec guards ✅ (تحذير browser-use الاختيارية فقط) · `pytest -q --cov=src --cov-fail-under=60` = **674 passed, 68 warnings, 87.00% coverage**؛ cloud/app المستهدفة 8 passed. يلزم عدم وصف التكامل بأنه حيّ. لا تدمج PR #19 دون شروطه وموافقة المستخدم.
 
 ---
 

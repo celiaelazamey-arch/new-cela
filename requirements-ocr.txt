@@ -11,3 +11,8 @@ pypdf>=4,<7
 # كانت تُثبَّت عرضياً عبر streamlit/browser-use فقط — أُعلنت صراحةً لمنع انقطاعها
 # عند تغيّر تلك التبعيات. تغطيها اختبارات tests/test_ocr.py.
 Pillow>=10,<14
+
+# حماية XML ضد XXE / Billion Laughs + كشف ترميز النصوص العربية القديمة (src/ingestion/pipeline.py):
+defusedxml>=0.7.1,<1
+charset-normalizer>=3.0,<4
+
