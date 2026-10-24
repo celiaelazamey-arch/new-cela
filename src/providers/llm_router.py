@@ -28,9 +28,6 @@ GROQ = "groq"
 
 T = TypeVar("T")
 
-GEMINI = "gemini"
-GROQ = "groq"
-
 
 class LLMRouter:
     """موجّه نماذج مجاني مع تبديل تلقائي بين المزودات عند الفشل."""
